@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
 import type { PayrollWithEmployee } from "@/types/database";
-import { formatHours, formatYen } from "@/lib/format";
+import { formatYen } from "@/lib/format";
+import { HoursDisplay } from "@/components/admin/HoursDisplay";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -102,7 +103,8 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
           </Button>
         </form>
         <p className="mt-2 text-xs text-slate-500">
-          「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）
+          「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）。
+          勤務時間は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
         </p>
       </Card>
 
@@ -118,8 +120,8 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
           <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 font-medium">従業員</th>
-              <th className="px-4 py-3 font-medium">通常</th>
-              <th className="px-4 py-3 font-medium">深夜(22時〜)</th>
+              <th className="min-w-[8rem] px-4 py-3 font-medium">通常勤務</th>
+              <th className="min-w-[8rem] px-4 py-3 font-medium">深夜(22時〜)</th>
               <th className="px-4 py-3 font-medium">通常給</th>
               <th className="px-4 py-3 font-medium">深夜給</th>
               <th className="px-4 py-3 font-medium">合計</th>
@@ -129,8 +131,18 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
             {payroll.map((row) => (
               <tr key={row.id}>
                 <td className="px-4 py-3 font-medium">{row.employees?.name ?? "—"}</td>
-                <td className="px-4 py-3">{formatHours(Number(row.regular_hours))}</td>
-                <td className="px-4 py-3">{formatHours(Number(row.night_hours))}</td>
+                <td className="px-4 py-3">
+                  <HoursDisplay
+                    actualHours={Number(row.actual_regular_hours ?? row.regular_hours)}
+                    payrollHours={Number(row.regular_hours)}
+                  />
+                </td>
+                <td className="px-4 py-3">
+                  <HoursDisplay
+                    actualHours={Number(row.actual_night_hours ?? row.night_hours)}
+                    payrollHours={Number(row.night_hours)}
+                  />
+                </td>
                 <td className="px-4 py-3">{formatYen(Number(row.regular_pay))}</td>
                 <td className="px-4 py-3">{formatYen(Number(row.night_pay))}</td>
                 <td className="px-4 py-3 font-semibold">{formatYen(Number(row.total_pay))}</td>

@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS monthly_payroll (
   employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   year INTEGER NOT NULL,
   month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+  actual_regular_hours NUMERIC(10, 4) NOT NULL DEFAULT 0,
+  actual_night_hours NUMERIC(10, 4) NOT NULL DEFAULT 0,
   regular_hours NUMERIC(10, 4) NOT NULL DEFAULT 0,
   night_hours NUMERIC(10, 4) NOT NULL DEFAULT 0,
   regular_pay NUMERIC(12, 2) NOT NULL DEFAULT 0,

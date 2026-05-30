@@ -22,3 +22,13 @@ export function formatYen(amount: number): string {
 export function formatHours(hours: number): string {
   return `${hours.toFixed(2)}時間`;
 }
+
+/** 実勤務時間表示（例: 0.97時間） */
+export function formatActualHours(hours: number): string {
+  return `${hours.toFixed(2)}時間`;
+}
+
+/** 給与計算時間表示（30分切り捨て後・例: 0.50時間） */
+export function formatPayrollHours(hours: number): string {
+  return `${hours.toFixed(2)}時間`;
+}

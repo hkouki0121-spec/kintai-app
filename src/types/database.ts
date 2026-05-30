@@ -22,6 +22,8 @@ export type MonthlyPayroll = {
   employee_id: string;
   year: number;
   month: number;
+  actual_regular_hours: number;
+  actual_night_hours: number;
   regular_hours: number;
   night_hours: number;
   regular_pay: number;

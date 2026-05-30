@@ -1,7 +1,7 @@
-import { addMinutes, endOfMonth, startOfMonth
- } from "date-fns";
+import { addMinutes, endOfMonth, startOfMonth } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { NIGHT_RATE_MULTIPLIER, TIMEZONE } from "@/lib/constants";
+import { roundMinutesToHalfHours } from "@/lib/payroll/round-hours";
 
 export type WorkSegment = {
   regularMinutes: number;
@@ -30,7 +30,13 @@ export type PayrollResult = {
   employeeId: string;
   year: number;
   month: number;
+  /** 実勤務（通常・時間） */
+  actualRegularHours: number;
+  /** 実勤務（深夜・時間） */
+  actualNightHours: number;
+  /** 給与計算用（30分切り捨て後・通常） */
   regularHours: number;
+  /** 給与計算用（30分切り捨て後・深夜） */
   nightHours: number;
   regularPay: number;
   nightPay: number;
@@ -65,8 +71,10 @@ export function calculateEmployeePayroll(
     nightMinutes += segment.nightMinutes;
   }
 
-  const regularHours = roundHours(regularMinutes / 60);
-  const nightHours = roundHours(nightMinutes / 60);
+  const actualRegularHours = minutesToHours(regularMinutes);
+  const actualNightHours = minutesToHours(nightMinutes);
+  const regularHours = roundMinutesToHalfHours(regularMinutes);
+  const nightHours = roundMinutesToHalfHours(nightMinutes);
   const regularPay = roundYen(regularHours * hourlyRate);
   const nightPay = roundYen(nightHours * hourlyRate * NIGHT_RATE_MULTIPLIER);
   const totalPay = roundYen(regularPay + nightPay);
@@ -75,6 +83,8 @@ export function calculateEmployeePayroll(
     employeeId,
     year,
     month,
+    actualRegularHours,
+    actualNightHours,
     regularHours,
     nightHours,
     regularPay,
@@ -83,8 +93,8 @@ export function calculateEmployeePayroll(
   };
 }
 
-function roundHours(h: number): number {
-  return Math.round(h * 10000) / 10000;
+function minutesToHours(minutes: number): number {
+  return Math.round((minutes / 60) * 100) / 100;
 }
 
 function roundYen(y: number): number {

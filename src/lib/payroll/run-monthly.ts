@@ -46,6 +46,8 @@ export async function runMonthlyPayroll(
         employee_id: result.employeeId,
         year: result.year,
         month: result.month,
+        actual_regular_hours: result.actualRegularHours,
+        actual_night_hours: result.actualNightHours,
         regular_hours: result.regularHours,
         night_hours: result.nightHours,
         regular_pay: result.regularPay,

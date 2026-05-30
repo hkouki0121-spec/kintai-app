@@ -25,7 +25,7 @@ export default async function PayrollPage({
       <div>
         <h2 className="text-2xl font-bold text-slate-900">給与計算</h2>
         <p className="text-sm text-slate-600">
-          22時以降の勤務は時給1.25倍。月末に自動計算も可能です。
+          22時以降は時給1.25倍。給与は勤務時間を30分単位で切り捨てて計算します（実勤務時間も表示）。
         </p>
       </div>
       <PayrollManager
