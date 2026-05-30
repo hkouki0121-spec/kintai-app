@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyCronAuth } from "@/lib/api/verify-cron-auth";
 import { executeMonthlyPayrollCron } from "@/lib/payroll/run-monthly-cron";
 
-/** @deprecated /api/cron/monthly-payroll を使用してください */
+/** 月末自動給与計算（Vercel Cron） */
 export async function GET(request: Request) {
   const unauthorized = verifyCronAuth(request);
   if (unauthorized) return unauthorized;

@@ -17,8 +17,10 @@
 | 顔認証出勤・退勤 | トップ画面のキオスクで打刻 |
 | 従業員ごとの時給 | 管理画面で設定 |
 | 22時以降 1.25倍 | 給与計算時に自動適用（22時〜翌5時） |
+| 15分未満除外 | 1勤務区間合計が15分未満は0時間（誤打刻対策） |
 | 30分単位切り捨て | `Math.floor(分/30)*0.5` で通常・深夜それぞれ集計 |
-| 月末給与計算 | 管理画面の手動計算 + Vercel Cron |
+| 月末給与計算 | 管理画面の手動計算 + Vercel Cron（`/api/cron/monthly-payroll`） |
+| 給与明細PDF | 給与画面から一括ダウンロード |
 | 管理者ログイン | Supabase Auth |
 | 従業員一覧 | 追加・時給・顔登録 |
 | 勤怠履歴 | 期間フィルタ付き |
@@ -75,9 +77,20 @@ npm run dev
 
 ## 月末自動給与（Vercel）
 
-`vercel.json` に Cron を定義しています。デプロイ後、Vercel の環境変数に `CRON_SECRET` と `SUPABASE_SERVICE_ROLE_KEY` を設定してください。
+`vercel.json` で `/api/cron/monthly-payroll` を月末に実行します。
 
-Cron は月末（JST）に前月分の給与を自動計算します。手動では **給与 → 給与を計算** でも実行できます。
+**環境変数:** `CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`
+
+**認証:** リクエストヘッダー `Authorization: Bearer <CRON_SECRET>`（不一致時は 401）
+
+**手動テスト例:**
+
+```bash
+curl -H "Authorization: Bearer あなたのCRON_SECRET" \
+  https://your-app.vercel.app/api/cron/monthly-payroll
+```
+
+月末（JST）以外はスキップされます。手動では **給与 → 給与を計算** でも実行できます。
 
 ## 顔認証について
 

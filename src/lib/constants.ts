@@ -6,3 +6,9 @@ export const FACE_MATCH_THRESHOLD = 0.55;
 
 /** 日本タイムゾーン */
 export const TIMEZONE = "Asia/Tokyo";
+
+/** 給与明細の会社名 */
+export const COMPANY_NAME = "炭火焼肉 笑門来福";
+
+/** 給与計算対象とする勤務区間の最短時間（分） */
+export const MIN_WORK_MINUTES = 15;

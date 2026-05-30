@@ -1,7 +1,10 @@
 import { addMinutes, endOfMonth, startOfMonth } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { NIGHT_RATE_MULTIPLIER, TIMEZONE } from "@/lib/constants";
-import { roundMinutesToHalfHours } from "@/lib/payroll/round-hours";
+import {
+  isWorkSegmentEligible,
+  roundMinutesToHalfHours,
+} from "@/lib/payroll/round-hours";
 
 export type WorkSegment = {
   regularMinutes: number;
@@ -67,6 +70,9 @@ export function calculateEmployeePayroll(
     if (effectiveOut <= effectiveIn) continue;
 
     const segment = splitWorkMinutes(effectiveIn, effectiveOut);
+    if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes)) {
+      continue;
+    }
     regularMinutes += segment.regularMinutes;
     nightMinutes += segment.nightMinutes;
   }

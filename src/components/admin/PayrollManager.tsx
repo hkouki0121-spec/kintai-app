@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
+import { downloadPayrollPdf } from "@/lib/pdf/generate-payroll-pdf";
 import type { PayrollWithEmployee } from "@/types/database";
 import { formatYen } from "@/lib/format";
 import { HoursDisplay } from "@/components/admin/HoursDisplay";
@@ -23,6 +24,7 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
   const [month, setMonth] = useState(String(initialMonth));
   const [payroll, setPayroll] = useState(initialPayroll);
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const router = useRouter();
   const supabase = createClient();
@@ -71,6 +73,23 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
 
   const totalAmount = payroll.reduce((sum, p) => sum + Number(p.total_pay), 0);
 
+  const handleDownloadPdf = async () => {
+    if (payroll.length === 0) {
+      setMessage({ type: "error", text: "給与データがありません。先に給与を計算してください。" });
+      return;
+    }
+    setPdfLoading(true);
+    setMessage(null);
+    try {
+      await downloadPayrollPdf(payroll, Number(year), Number(month));
+      setMessage({ type: "success", text: "給与明細PDFをダウンロードしました。" });
+    } catch (e) {
+      setMessage({ type: "error", text: (e as Error).message });
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -101,10 +120,18 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
           <Button type="button" onClick={handleCalculate} disabled={loading}>
             {loading ? "計算中…" : "給与を計算"}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleDownloadPdf}
+            disabled={pdfLoading || payroll.length === 0}
+          >
+            {pdfLoading ? "PDF作成中…" : "給与明細PDFを出力"}
+          </Button>
         </form>
         <p className="mt-2 text-xs text-slate-500">
           「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）。
-          勤務時間は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
+          15分未満の勤務区間は0時間、以降は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
         </p>
       </Card>
 
