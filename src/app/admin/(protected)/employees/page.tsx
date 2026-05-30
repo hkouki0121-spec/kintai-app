@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeManager } from "@/components/admin/EmployeeManager";
-import { fetchActiveStores } from "@/lib/stores/queries";
 import type { EmployeeWithStore } from "@/types/database";
 
 export default async function EmployeesPage() {

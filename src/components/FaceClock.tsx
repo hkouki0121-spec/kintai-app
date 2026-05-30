@@ -109,10 +109,11 @@ export function FaceClock() {
 
     init();
 
+    const video = videoRef.current;
     return () => {
       cancelled = true;
       cameraReadyRef.current = false;
-      const stream = videoRef.current?.srcObject as MediaStream | undefined;
+      const stream = video?.srcObject as MediaStream | undefined;
       stream?.getTracks().forEach((t) => t.stop());
     };
   }, [startCamera, loadModels, supabase]);
@@ -244,10 +245,15 @@ export function FaceClock() {
       setOverlayHint("顔をカメラに向けてください");
     } catch (e) {
       setOverlayHint("顔をカメラに向けてください");
-      setMessage({
-        type: "error",
-        text: (e as Error).message || "打刻に失敗しました。",
-      });
+      const err = e as Error & { name?: string };
+      if (err.name === "FacePipelineError") {
+        setMessage({ type: "error", text: err.message });
+      } else {
+        setMessage({
+          type: "error",
+          text: err.message || "打刻に失敗しました。",
+        });
+      }
     } finally {
       setProcessing(false);
     }

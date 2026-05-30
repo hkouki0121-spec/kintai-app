@@ -91,10 +91,11 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
 
     init();
 
+    const video = videoRef.current;
     return () => {
       cancelled = true;
       cameraReadyRef.current = false;
-      const stream = videoRef.current?.srcObject as MediaStream | undefined;
+      const stream = video?.srcObject as MediaStream | undefined;
       stream?.getTracks().forEach((t) => t.stop());
     };
   }, [startCamera, loadModels]);

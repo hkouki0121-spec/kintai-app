@@ -4,6 +4,11 @@ import { DashboardContent } from "@/components/admin/DashboardContent";
 import { fetchActiveStores, isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 
+type RecentRow = {
+  clock_in: string;
+  employees: { name: string; stores: { name: string } | null } | null;
+};
+
 export default async function AdminDashboardPage({
   searchParams,
 }: {
@@ -39,8 +44,24 @@ export default async function AdminDashboardPage({
   const [
     { count: employeeCount },
     { count: openAttendance },
-    { data: recent },
+    { data: recentRaw },
   ] = await Promise.all([employeeQuery, attendanceQuery, recentQuery]);
+
+  const recent: RecentRow[] = (recentRaw ?? []).map((row) => {
+    const rawEmp = row.employees as unknown;
+    const emp = (Array.isArray(rawEmp) ? rawEmp[0] : rawEmp) as
+      | { name: string; stores: { name: string } | { name: string }[] | null }
+      | null
+      | undefined;
+    const store = emp?.stores;
+    const storeObj = Array.isArray(store) ? (store[0] ?? null) : store;
+    return {
+      clock_in: row.clock_in as string,
+      employees: emp
+        ? { name: emp.name, stores: storeObj ? { name: storeObj.name } : null }
+        : null,
+    };
+  });
 
   return (
     <Suspense fallback={<p className="text-sm text-slate-500">読み込み中…</p>}>
@@ -48,7 +69,7 @@ export default async function AdminDashboardPage({
         stores={stores}
         employeeCount={employeeCount ?? 0}
         openAttendance={openAttendance ?? 0}
-        recent={recent ?? []}
+        recent={recent}
       />
     </Suspense>
   );
