@@ -4,6 +4,11 @@ import { FACE_MATCH_THRESHOLD } from "@/lib/constants";
 const MODEL_BASE =
   "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/model";
 
+const detectorOptions = new faceapi.TinyFaceDetectorOptions({
+  inputSize: 416,
+  scoreThreshold: 0.5,
+});
+
 let modelsLoaded = false;
 
 export async function loadFaceModels(): Promise<void> {
@@ -16,15 +21,26 @@ export async function loadFaceModels(): Promise<void> {
   modelsLoaded = true;
 }
 
-export async function extractDescriptor(
-  video: HTMLVideoElement
-): Promise<Float32Array | null> {
-  const detection = await faceapi
-    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
+export type FaceScanResult =
+  | { status: "no_face" }
+  | { status: "multiple_faces"; count: number }
+  | { status: "ok"; descriptor: Float32Array };
 
-  return detection?.descriptor ?? null;
+/** 映像内の顔を検出（0人・複数人・1人を判定） */
+export async function scanSingleFace(video: HTMLVideoElement): Promise<FaceScanResult> {
+  await loadFaceModels();
+  const detections = await faceapi
+    .detectAllFaces(video, detectorOptions)
+    .withFaceLandmarks()
+    .withFaceDescriptors();
+
+  if (detections.length === 0) {
+    return { status: "no_face" };
+  }
+  if (detections.length > 1) {
+    return { status: "multiple_faces", count: detections.length };
+  }
+  return { status: "ok", descriptor: detections[0].descriptor };
 }
 
 export function descriptorToArray(descriptor: Float32Array): number[] {
@@ -35,26 +51,43 @@ export function arrayToDescriptor(arr: number[]): Float32Array {
   return new Float32Array(arr);
 }
 
-export type FaceMatch = {
-  employeeId: string;
+export type EmployeeFaceRecord = {
+  id: string;
   name: string;
-  distance: number;
+  face_descriptor: number[] | null;
 };
 
-export function findBestMatch(
+export type IdentifiedEmployee = {
+  employeeId: string;
+  name: string;
+};
+
+/** 登録済み従業員と照合（スコアは返さない） */
+export function identifyEmployee(
   descriptor: Float32Array,
-  employees: { id: string; name: string; face_descriptor: number[] | null }[]
-): FaceMatch | null {
-  let best: FaceMatch | null = null;
+  employees: EmployeeFaceRecord[]
+): IdentifiedEmployee | null {
+  let bestId: string | null = null;
+  let bestName: string | null = null;
+  let bestDistance = Infinity;
 
   for (const emp of employees) {
     if (!emp.face_descriptor || emp.face_descriptor.length === 0) continue;
     const stored = arrayToDescriptor(emp.face_descriptor);
     const distance = faceapi.euclideanDistance(descriptor, stored);
-    if (distance < FACE_MATCH_THRESHOLD && (!best || distance < best.distance)) {
-      best = { employeeId: emp.id, name: emp.name, distance };
+    if (distance < FACE_MATCH_THRESHOLD && distance < bestDistance) {
+      bestDistance = distance;
+      bestId = emp.id;
+      bestName = emp.name;
     }
   }
 
-  return best;
+  if (!bestId || !bestName) return null;
+  return { employeeId: bestId, name: bestName };
+}
+
+/** @deprecated scanSingleFace を使用 */
+export async function extractDescriptor(video: HTMLVideoElement): Promise<Float32Array | null> {
+  const result = await scanSingleFace(video);
+  return result.status === "ok" ? result.descriptor : null;
 }

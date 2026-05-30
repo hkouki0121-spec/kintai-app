@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
-import { FaceRegister } from "@/components/admin/FaceRegister";
+import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
 import { formatYen } from "@/lib/format";
 
 type Props = {
@@ -23,6 +23,7 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
   const [storeId, setStoreId] = useState(activeStores[0]?.id ?? stores[0]?.id ?? "");
   const [hourlyRate, setHourlyRate] = useState("1000");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [faceRegisterTarget, setFaceRegisterTarget] = useState<EmployeeWithStore | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
@@ -80,8 +81,17 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
   };
 
   const handleFaceSave = async (id: string, descriptor: number[]) => {
-    await supabase.from("employees").update({ face_descriptor: descriptor }).eq("id", id);
+    const { error } = await supabase
+      .from("employees")
+      .update({ face_descriptor: descriptor })
+      .eq("id", id);
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
     await refresh();
+    setFaceRegisterTarget(null);
+    setMessage("顔を登録しました");
   };
 
   return (
@@ -136,7 +146,13 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
         )}
         {message && (
           <div className="mt-3">
-            <Alert type={message.includes("追加") ? "success" : "error"}>{message}</Alert>
+            <Alert
+              type={
+                message.includes("追加") || message.includes("登録") ? "success" : "error"
+              }
+            >
+              {message}
+            </Alert>
           </div>
         )}
       </Card>
@@ -162,8 +178,18 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
                   時給: {formatYen(Number(emp.hourly_rate))}
                   <span className="text-slate-400">（22時以降 ×1.25）</span>
                 </p>
+                <p className="mt-1 text-sm">
+                  {emp.face_descriptor ? (
+                    <span className="text-emerald-700">顔登録済み</span>
+                  ) : (
+                    <span className="text-amber-700">顔未登録</span>
+                  )}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="primary" onClick={() => setFaceRegisterTarget(emp)}>
+                  顔登録
+                </Button>
                 <Button variant="ghost" onClick={() => setExpandedId(expandedId === emp.id ? null : emp.id)}>
                   {expandedId === emp.id ? "閉じる" : "編集"}
                 </Button>
@@ -196,17 +222,20 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
                     onBlur={(e) => handleRateUpdate(emp.id, e.target.value)}
                   />
                 </div>
-                <div className="mt-4">
-                  <p className="mb-2 text-sm font-medium text-slate-700">顔認証登録</p>
-                  <FaceRegister
-                    hasFace={!!emp.face_descriptor}
-                    onSave={(d) => handleFaceSave(emp.id, d)}
-                  />
-                </div>
               </div>
             )}
           </Card>
         ))}
+
+        {faceRegisterTarget && (
+          <FaceRegisterModal
+            employeeId={faceRegisterTarget.id}
+            employeeName={faceRegisterTarget.name}
+            hasFace={!!faceRegisterTarget.face_descriptor}
+            onSave={handleFaceSave}
+            onClose={() => setFaceRegisterTarget(null)}
+          />
+        )}
         {employees.length === 0 && (
           <p className="text-center text-sm text-slate-500">従業員が登録されていません</p>
         )}
