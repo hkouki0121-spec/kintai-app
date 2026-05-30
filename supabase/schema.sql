@@ -1,11 +1,22 @@
 -- 勤怠管理アプリ データベーススキーマ
 -- Supabase SQL Editor で実行してください
 
+-- 店舗
+CREATE TABLE IF NOT EXISTS stores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  address TEXT,
+  phone TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 従業員
 CREATE TABLE IF NOT EXISTS employees (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   employee_code TEXT NOT NULL UNIQUE,
+  store_id UUID NOT NULL REFERENCES stores(id),
   hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 1000 CHECK (hourly_rate > 0),
   face_descriptor JSONB,
   is_active BOOLEAN NOT NULL DEFAULT true,
@@ -13,10 +24,13 @@ CREATE TABLE IF NOT EXISTS employees (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_employees_store ON employees(store_id);
+
 -- 勤怠記録
 CREATE TABLE IF NOT EXISTS attendance_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  store_id UUID NOT NULL REFERENCES stores(id),
   clock_in TIMESTAMPTZ NOT NULL,
   clock_out TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -24,6 +38,7 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance_records(employee_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_store ON attendance_records(store_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_clock_in ON attendance_records(clock_in DESC);
 
 -- 月次給与
@@ -60,11 +75,14 @@ CREATE TRIGGER employees_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- RLS
+ALTER TABLE stores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_payroll ENABLE ROW LEVEL SECURITY;
 
--- 認証済み管理者: 全操作可能
+CREATE POLICY "admin_all_stores" ON stores
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
 CREATE POLICY "admin_all_employees" ON employees
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
@@ -74,12 +92,13 @@ CREATE POLICY "admin_all_attendance" ON attendance_records
 CREATE POLICY "admin_all_payroll" ON monthly_payroll
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
--- キオスク（匿名）: 顔認証用に descriptor と active 従業員のみ読取
+CREATE POLICY "anon_read_active_stores" ON stores
+  FOR SELECT TO anon USING (is_active = true);
+
 CREATE POLICY "anon_read_active_employees" ON employees
   FOR SELECT TO anon
   USING (is_active = true);
 
--- キオスク: 勤怠の挿入・更新（退勤）
 CREATE POLICY "anon_insert_attendance" ON attendance_records
   FOR INSERT TO anon WITH CHECK (true);
 

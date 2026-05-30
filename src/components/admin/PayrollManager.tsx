@@ -5,23 +5,35 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
 import { downloadPayrollPdf } from "@/lib/pdf/generate-payroll-pdf";
-import type { PayrollWithEmployee } from "@/types/database";
+import { isAllStores } from "@/lib/stores/queries";
+import { ALL_STORES_VALUE } from "@/lib/stores/constants";
+import type { PayrollWithEmployee, Store } from "@/types/database";
 import { formatYen } from "@/lib/format";
 import { HoursDisplay } from "@/components/admin/HoursDisplay";
+import { StoreSelect } from "@/components/admin/StoreSelect";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 
 type Props = {
+  stores: Pick<Store, "id" | "name">[];
+  initialStoreId: string;
   initialPayroll: PayrollWithEmployee[];
   initialYear: number;
   initialMonth: number;
 };
 
-export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Props) {
+export function PayrollManager({
+  stores,
+  initialStoreId,
+  initialPayroll,
+  initialYear,
+  initialMonth,
+}: Props) {
   const [year, setYear] = useState(String(initialYear));
   const [month, setMonth] = useState(String(initialMonth));
+  const [storeId, setStoreId] = useState(initialStoreId);
   const [payroll, setPayroll] = useState(initialPayroll);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -29,20 +41,38 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
   const router = useRouter();
   const supabase = createClient();
 
-  const loadPayroll = async (y: number, m: number) => {
-    const { data } = await supabase
+  const loadPayroll = async (y: number, m: number, store: string) => {
+    let query = supabase
       .from("monthly_payroll")
-      .select("*, employees(id, name, employee_code)")
+      .select("*, employees(id, name, employee_code, store_id, stores(id, name))")
       .eq("year", y)
       .eq("month", m)
       .order("total_pay", { ascending: false });
+
+    if (!isAllStores(store)) {
+      query = supabase
+        .from("monthly_payroll")
+        .select("*, employees!inner(id, name, employee_code, store_id, stores(id, name))")
+        .eq("year", y)
+        .eq("month", m)
+        .eq("employees.store_id", store)
+        .order("total_pay", { ascending: false });
+    }
+
+    const { data } = await query;
     setPayroll((data as PayrollWithEmployee[]) ?? []);
+  };
+
+  const buildPayrollUrl = (y: string, m: string, store: string) => {
+    const params = new URLSearchParams({ year: y, month: m });
+    if (!isAllStores(store)) params.set("store", store);
+    return `/admin/payroll?${params.toString()}`;
   };
 
   const handlePeriodChange = (e: React.FormEvent) => {
     e.preventDefault();
-    router.push(`/admin/payroll?year=${year}&month=${month}`);
-    loadPayroll(Number(year), Number(month));
+    router.push(buildPayrollUrl(year, month, storeId));
+    loadPayroll(Number(year), Number(month), storeId);
   };
 
   const handleCalculate = async () => {
@@ -51,17 +81,25 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
     try {
       const y = Number(year);
       const m = Number(month);
-      const result = await runMonthlyPayroll(supabase, y, m);
-      await loadPayroll(y, m);
+      const result = await runMonthlyPayroll(
+        supabase,
+        y,
+        m,
+        isAllStores(storeId) ? ALL_STORES_VALUE : storeId
+      );
+      await loadPayroll(y, m, storeId);
+      const storeLabel = isAllStores(storeId)
+        ? "全店舗"
+        : stores.find((s) => s.id === storeId)?.name ?? "";
       if (result.errors.length > 0) {
         setMessage({
           type: "error",
-          text: `${result.processed}件を計算しましたが、一部エラー: ${result.errors.join(", ")}`,
+          text: `${storeLabel} ${result.processed}件を計算しましたが、一部エラー: ${result.errors.join(", ")}`,
         });
       } else {
         setMessage({
           type: "success",
-          text: `${y}年${m}月の給与を${result.processed}名分計算しました`,
+          text: `${y}年${m}月（${storeLabel}）の給与を${result.processed}名分計算しました`,
         });
       }
     } catch (e) {
@@ -94,6 +132,12 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
     <div className="space-y-4">
       <Card>
         <form onSubmit={handlePeriodChange} className="flex flex-wrap items-end gap-3">
+          <StoreSelect
+            stores={stores}
+            value={storeId}
+            onChange={setStoreId}
+            label="店舗選択"
+          />
           <div>
             <label className="mb-1 block text-sm text-slate-600">年</label>
             <Input
@@ -147,6 +191,7 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
           <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 font-medium">従業員</th>
+              <th className="px-4 py-3 font-medium">店舗</th>
               <th className="min-w-[8rem] px-4 py-3 font-medium">通常勤務</th>
               <th className="min-w-[8rem] px-4 py-3 font-medium">深夜(22時〜)</th>
               <th className="px-4 py-3 font-medium">通常給</th>
@@ -158,6 +203,7 @@ export function PayrollManager({ initialPayroll, initialYear, initialMonth }: Pr
             {payroll.map((row) => (
               <tr key={row.id}>
                 <td className="px-4 py-3 font-medium">{row.employees?.name ?? "—"}</td>
+                <td className="px-4 py-3 text-slate-600">{row.employees?.stores?.name ?? "—"}</td>
                 <td className="px-4 py-3">
                   <HoursDisplay
                     actualHours={Number(row.actual_regular_hours ?? row.regular_hours)}

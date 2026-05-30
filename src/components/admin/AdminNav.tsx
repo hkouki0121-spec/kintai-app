@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 
 const links = [
   { href: "/admin", label: "ダッシュボード" },
+  { href: "/admin/stores", label: "店舗管理" },
   { href: "/admin/employees", label: "従業員" },
   { href: "/admin/attendance", label: "勤怠履歴" },
   { href: "/admin/payroll", label: "給与" },

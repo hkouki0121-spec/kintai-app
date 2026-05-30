@@ -1,7 +1,17 @@
+export type Store = {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type Employee = {
   id: string;
   name: string;
   employee_code: string;
+  store_id: string;
   hourly_rate: number;
   face_descriptor: number[] | null;
   is_active: boolean;
@@ -12,6 +22,7 @@ export type Employee = {
 export type AttendanceRecord = {
   id: string;
   employee_id: string;
+  store_id: string;
   clock_in: string;
   clock_out: string | null;
   created_at: string;
@@ -32,10 +43,18 @@ export type MonthlyPayroll = {
   calculated_at: string;
 };
 
+export type EmployeeWithStore = Employee & {
+  stores: Pick<Store, "id" | "name"> | null;
+};
+
 export type EmployeeWithAttendance = AttendanceRecord & {
-  employees: Pick<Employee, "id" | "name" | "employee_code" | "hourly_rate">;
+  employees: Pick<Employee, "id" | "name" | "employee_code" | "hourly_rate" | "store_id"> & {
+    stores: Pick<Store, "id" | "name"> | null;
+  };
 };
 
 export type PayrollWithEmployee = MonthlyPayroll & {
-  employees: Pick<Employee, "id" | "name" | "employee_code">;
+  employees: Pick<Employee, "id" | "name" | "employee_code" | "store_id"> & {
+    stores: Pick<Store, "id" | "name"> | null;
+  };
 };

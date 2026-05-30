@@ -1,21 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { EmployeeWithAttendance } from "@/types/database";
+import type { EmployeeWithAttendance, Store } from "@/types/database";
 import { formatJstDateTime } from "@/lib/format";
+import { ALL_STORES_VALUE } from "@/lib/stores/constants";
+import { StoreSelect } from "@/components/admin/StoreSelect";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 
 type Props = {
   records: EmployeeWithAttendance[];
+  stores: Pick<Store, "id" | "name">[];
+  initialStoreId: string;
 };
 
-export function AttendanceTable({ records }: Props) {
+export function AttendanceTable({ records, stores, initialStoreId }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
+  const [storeId, setStoreId] = useState(searchParams.get("store") ?? initialStoreId);
 
   const applyFilter = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -25,6 +31,7 @@ export function AttendanceTable({ records }: Props) {
     const t = fd.get("to") as string;
     if (f) params.set("from", f);
     if (t) params.set("to", t);
+    if (storeId && storeId !== ALL_STORES_VALUE) params.set("store", storeId);
     router.push(`/admin/attendance?${params.toString()}`);
   };
 
@@ -32,6 +39,7 @@ export function AttendanceTable({ records }: Props) {
     <div className="space-y-4">
       <Card>
         <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-3">
+          <StoreSelect stores={stores} value={storeId} onChange={setStoreId} label="店舗" />
           <div>
             <label className="mb-1 block text-sm text-slate-600">開始日</label>
             <Input type="date" name="from" defaultValue={from} />
@@ -51,6 +59,7 @@ export function AttendanceTable({ records }: Props) {
           <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 font-medium">従業員</th>
+              <th className="px-4 py-3 font-medium">店舗</th>
               <th className="px-4 py-3 font-medium">出勤</th>
               <th className="px-4 py-3 font-medium">退勤</th>
               <th className="px-4 py-3 font-medium">状態</th>
@@ -60,6 +69,9 @@ export function AttendanceTable({ records }: Props) {
             {records.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium">{row.employees?.name ?? "—"}</td>
+                <td className="px-4 py-3 text-slate-600">
+                  {row.employees?.stores?.name ?? "—"}
+                </td>
                 <td className="px-4 py-3">{formatJstDateTime(row.clock_in)}</td>
                 <td className="px-4 py-3">
                   {row.clock_out ? formatJstDateTime(row.clock_out) : "—"}

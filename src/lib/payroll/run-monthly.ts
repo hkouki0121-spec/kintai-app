@@ -1,19 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
+import { isAllStores } from "@/lib/stores/queries";
 
 export async function runMonthlyPayroll(
   supabase: SupabaseClient,
   year: number,
-  month: number
+  month: number,
+  storeId?: string | null
 ): Promise<{ processed: number; errors: string[] }> {
   const monthStart = startOfMonth(new Date(year, month - 1, 1)).toISOString();
   const monthEnd = endOfMonth(new Date(year, month - 1, 1)).toISOString();
 
-  const { data: employees, error: empError } = await supabase
+  let employeeQuery = supabase
     .from("employees")
     .select("id, hourly_rate")
     .eq("is_active", true);
+
+  if (!isAllStores(storeId)) {
+    employeeQuery = employeeQuery.eq("store_id", storeId!);
+  }
+
+  const { data: employees, error: empError } = await employeeQuery;
 
   if (empError) throw empError;
 

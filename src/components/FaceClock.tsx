@@ -13,6 +13,7 @@ type Mode = "clock_in" | "clock_out";
 type EmployeeRow = {
   id: string;
   name: string;
+  store_id: string;
   face_descriptor: number[] | null;
 };
 
@@ -46,7 +47,7 @@ export function FaceClock() {
     const loadEmployees = async () => {
       const { data } = await supabase
         .from("employees")
-        .select("id, name, face_descriptor")
+        .select("id, name, store_id, face_descriptor")
         .eq("is_active", true);
       setEmployees((data as EmployeeRow[]) ?? []);
     };
@@ -74,8 +75,13 @@ export function FaceClock() {
         return;
       }
 
-      const match = faceApiref.current.findBestMatch(descriptor, employees);
-      if (!match) {
+      const match = faceApiref.current.findBestMatch(descriptor, employees) as {
+        employeeId: string;
+        name: string;
+        distance: number;
+      } | null;
+      const matchedEmployee = employees.find((e) => e.id === match?.employeeId);
+      if (!match || !matchedEmployee) {
         setMessage({
           type: "error",
           text: "登録されている従業員と一致しませんでした。管理者に顔登録を依頼してください。",
@@ -100,6 +106,7 @@ export function FaceClock() {
 
         const { error } = await supabase.from("attendance_records").insert({
           employee_id: match.employeeId,
+          store_id: matchedEmployee.store_id,
           clock_in: now,
         });
 
