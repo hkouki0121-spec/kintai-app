@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
+import { createKioskClient, getSupabaseAuthRole } from "@/lib/supabase/kiosk-client";
 import type { IdentifiedEmployee } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -40,7 +40,7 @@ export function FaceClock() {
     null
   );
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
-  const supabase = createClient();
+  const supabase = useMemo(() => createKioskClient(), []);
 
   const startCamera = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -210,6 +210,11 @@ export function FaceClock() {
       }
 
       setOverlayHint("認証成功");
+
+      const jwtRole = await getSupabaseAuthRole(supabase);
+      if (process.env.NODE_ENV === "development") {
+        console.debug(`[FaceClock] supabase JWT role: ${jwtRole}`);
+      }
 
       try {
         if (action === "clock_in") {
