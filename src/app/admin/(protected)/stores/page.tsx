@@ -10,7 +10,10 @@ export default async function StoresPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">店舗管理</h2>
-        <p className="text-sm text-slate-600">店舗の追加・編集・有効/無効の切り替え</p>
+        <p className="text-sm text-slate-600">
+          店舗の追加・編集・有効/無効の切り替え。各店舗で LINE 通知先（グループID または
+          ユーザーID）と通知 ON/OFF を設定できます。
+        </p>
       </div>
       <StoreManager initialStores={(data as Store[]) ?? []} />
     </div>
