@@ -229,7 +229,7 @@ export function FaceClock() {
           setOverlayHint("顔をカメラに向けてください");
           setMessage({
             type: "error",
-            text: `${identified.name} さんはすでに出勤中です。退勤を選んで打刻してください。`,
+            text: `${identified.name} さんは既に出勤中です。退勤を選んで打刻してください。`,
           });
           return;
         }

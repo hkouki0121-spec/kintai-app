@@ -41,6 +41,10 @@ CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance_records(employe
 CREATE INDEX IF NOT EXISTS idx_attendance_store ON attendance_records(store_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_clock_in ON attendance_records(clock_in DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_attendance_one_open_per_employee
+  ON attendance_records (employee_id)
+  WHERE clock_out IS NULL;
+
 -- 月次給与
 CREATE TABLE IF NOT EXISTS monthly_payroll (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -103,7 +107,7 @@ CREATE POLICY "anon_insert_attendance" ON attendance_records
   FOR INSERT TO anon WITH CHECK (true);
 
 CREATE POLICY "anon_update_attendance" ON attendance_records
-  FOR UPDATE TO anon USING (true) WITH CHECK (true);
+  FOR UPDATE TO anon USING (clock_out IS NULL) WITH CHECK (true);
 
 CREATE POLICY "anon_read_open_attendance" ON attendance_records
   FOR SELECT TO anon USING (clock_out IS NULL);

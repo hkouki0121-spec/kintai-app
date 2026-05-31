@@ -17,12 +17,31 @@ function parseSupabaseError(error: { message?: string; code?: string }): string 
   return error.message ?? "データベースエラーが発生しました";
 }
 
-/** 出勤: attendance_records に新規 INSERT のみ */
-export async function clockIn(
+/** 未退勤レコードが1件でもあればその id を返す（出勤前チェック用） */
+async function findAnyOpenRecordId(
   supabase: SupabaseClient,
-  { employeeId, storeId, clockIn: clockInAt }: ClockInParams
-): Promise<void> {
-  const { data: open, error: openError } = await supabase
+  employeeId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("attendance_records")
+    .select("id")
+    .eq("employee_id", employeeId)
+    .is("clock_out", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(parseSupabaseError(error));
+  }
+  return data?.id ?? null;
+}
+
+/** clock_in DESC で最新の未退勤レコード id を返す（退勤用） */
+async function findLatestOpenRecordId(
+  supabase: SupabaseClient,
+  employeeId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
     .from("attendance_records")
     .select("id")
     .eq("employee_id", employeeId)
@@ -31,10 +50,36 @@ export async function clockIn(
     .limit(1)
     .maybeSingle();
 
-  if (openError) {
-    throw new Error(parseSupabaseError(openError));
+  if (error) {
+    throw new Error(parseSupabaseError(error));
   }
-  if (open) {
+  return data?.id ?? null;
+}
+
+/** 退勤後に残った重複未退勤レコードを同時刻で締める */
+async function closeRemainingOpenRecords(
+  supabase: SupabaseClient,
+  employeeId: string,
+  clockOutAt: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("attendance_records")
+    .update({ clock_out: clockOutAt })
+    .eq("employee_id", employeeId)
+    .is("clock_out", null);
+
+  if (error) {
+    throw new Error(parseSupabaseError(error));
+  }
+}
+
+/** 出勤: 未退勤がなければ INSERT のみ。既にあれば ALREADY_CLOCKED_IN */
+export async function clockIn(
+  supabase: SupabaseClient,
+  { employeeId, storeId, clockIn: clockInAt }: ClockInParams
+): Promise<void> {
+  const openId = await findAnyOpenRecordId(supabase, employeeId);
+  if (openId) {
     throw new Error("ALREADY_CLOCKED_IN");
   }
 
@@ -45,43 +90,36 @@ export async function clockIn(
   });
 
   if (insertError) {
+    if (insertError.code === "23505") {
+      throw new Error("ALREADY_CLOCKED_IN");
+    }
     throw new Error(parseSupabaseError(insertError));
   }
 }
 
 /**
- * 退勤: INSERT / UPSERT は一切行わない。
- * clock_out IS NULL の最新1件のみ UPDATE する。
+ * 退勤: INSERT / UPSERT は行わない。
+ * 最新の未退勤1件を UPDATE し、重複未退勤が残っていれば同時刻で締める。
  */
 export async function clockOut(
   supabase: SupabaseClient,
   { employeeId, clockOut: clockOutAt }: ClockOutParams
 ): Promise<void> {
-  const { data: record, error: fetchError } = await supabase
-    .from("attendance_records")
-    .select("id")
-    .eq("employee_id", employeeId)
-    .is("clock_out", null)
-    .order("clock_in", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (fetchError) {
-    throw new Error(parseSupabaseError(fetchError));
-  }
-  if (!record) {
+  const recordId = await findLatestOpenRecordId(supabase, employeeId);
+  if (!recordId) {
     throw new Error("NO_OPEN_RECORD");
   }
 
-  // NOTE: .select() を付けると更新後行の読取が RLS で拒否されることがあるため付けない
   const { error: updateError } = await supabase
     .from("attendance_records")
     .update({ clock_out: clockOutAt })
-    .eq("id", record.id)
+    .eq("id", recordId)
     .eq("employee_id", employeeId)
     .is("clock_out", null);
 
   if (updateError) {
     throw new Error(parseSupabaseError(updateError));
   }
+
+  await closeRemainingOpenRecords(supabase, employeeId, clockOutAt);
 }
