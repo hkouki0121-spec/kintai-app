@@ -26,6 +26,7 @@ export async function GET() {
         secretConfigured: config.secretConfigured,
         resolvedSecretEnvVar: config.resolvedSecretEnvVar,
         secretLength: config.secretLength,
+        secretLooksLikeAccessToken: config.secretLooksLikeAccessToken,
         accessTokenConfigured: config.accessTokenConfigured,
       },
     },

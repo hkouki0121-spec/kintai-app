@@ -50,6 +50,7 @@ export type LineEnvDiagnostics = {
   secretConfigured: boolean;
   resolvedSecretEnvVar: LineChannelSecretConfig["envKey"];
   secretLength: number | null;
+  secretLooksLikeAccessToken: boolean;
   accessTokenConfigured: boolean;
   accessTokenEnvVar: typeof LINE_CHANNEL_ACCESS_TOKEN_ENV_KEY;
   checkedEnvVarNames: readonly string[];
@@ -64,6 +65,7 @@ export function getLineEnvDiagnostics(): LineEnvDiagnostics {
     secretConfigured: Boolean(secret),
     resolvedSecretEnvVar: envKey,
     secretLength: secret?.length ?? null,
+    secretLooksLikeAccessToken: Boolean(secret && secret.length > 64),
     accessTokenConfigured: Boolean(accessToken),
     accessTokenEnvVar: LINE_CHANNEL_ACCESS_TOKEN_ENV_KEY,
     checkedEnvVarNames: [...LINE_CHANNEL_SECRET_ENV_KEYS],

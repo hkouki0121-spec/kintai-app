@@ -18,6 +18,7 @@ type LineConfigResponse = {
     secretConfigured: boolean;
     resolvedSecretEnvVar: string | null;
     secretLength: number | null;
+    secretLooksLikeAccessToken?: boolean;
     accessTokenConfigured: boolean;
   };
   hints?: string[];
@@ -173,12 +174,20 @@ export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Pro
       </Alert>
 
       {lineConfig?.config && (
-        <Alert type={lineConfig.config.secretConfigured ? "success" : "error"}>
+        <Alert
+          type={
+            !lineConfig.config.secretConfigured || lineConfig.config.secretLooksLikeAccessToken
+              ? "error"
+              : "success"
+          }
+        >
           <p className="font-medium">
             Webhook 署名検証:{" "}
-            {lineConfig.config.secretConfigured
-              ? `${lineConfig.config.resolvedSecretEnvVar ?? lineConfig.config.expectedSecretEnvVar} 設定済み（${lineConfig.config.secretLength} 文字）`
-              : `${lineConfig.config.expectedSecretEnvVar} が未設定です（Verify は 401 になります）`}
+            {!lineConfig.config.secretConfigured
+              ? `${lineConfig.config.expectedSecretEnvVar} が未設定です（Verify は 401 になります）`
+              : lineConfig.config.secretLooksLikeAccessToken
+                ? `${lineConfig.config.expectedSecretEnvVar} の値が Access token の可能性があります（${lineConfig.config.secretLength} 文字）`
+                : `${lineConfig.config.resolvedSecretEnvVar ?? lineConfig.config.expectedSecretEnvVar} 設定済み（${lineConfig.config.secretLength} 文字）`}
           </p>
           <p className="mt-1 text-sm">
             参照環境変数: <code>{lineConfig.config.expectedSecretEnvVar}</code>
@@ -196,6 +205,13 @@ export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Pro
             <p className="mt-2 text-sm">
               Vercel に <code>LINE_CHANNEL_SECRET</code> を追加してください。値は LINE Developers
               Console の Basic settings → Channel secret です（Access token ではありません）。
+            </p>
+          )}
+          {lineConfig.config.secretLooksLikeAccessToken && (
+            <p className="mt-2 text-sm">
+              <code>LINE_CHANNEL_SECRET</code> に Channel access token が入っている可能性があります。
+              Basic settings の <strong>Channel secret</strong>（32 文字前後）に差し替えて Redeploy
+              してください。
             </p>
           )}
         </Alert>
