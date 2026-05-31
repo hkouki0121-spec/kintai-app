@@ -183,6 +183,14 @@ export function StoreManager({ initialStores }: Props) {
                       handleUpdate(store.id, { line_user_id: e.target.value || null })
                     }
                   />
+                  <a
+                    href="/line-user-id"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-block text-xs text-blue-600 underline-offset-2 hover:underline"
+                  >
+                    LINEユーザーIDを取得する
+                  </a>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm text-slate-600">LINEグループID</label>
