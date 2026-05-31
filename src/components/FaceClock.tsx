@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { clockIn, clockOut } from "@/lib/attendance/clock";
 import type { IdentifiedEmployee } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -191,54 +192,49 @@ export function FaceClock() {
       const now = new Date().toISOString();
 
       if (mode === "clock_in") {
-        const { data: open } = await supabase
-          .from("attendance_records")
-          .select("id")
-          .eq("employee_id", identified.employeeId)
-          .is("clock_out", null)
-          .maybeSingle();
-
-        if (open) {
-          setOverlayHint("顔をカメラに向けてください");
-          setMessage({
-            type: "error",
-            text: `${identified.name} さんはすでに出勤中です。退勤を選んで打刻してください。`,
+        try {
+          await clockIn(supabase, {
+            employeeId: identified.employeeId,
+            storeId: matchedEmployee.store_id,
+            clockIn: now,
           });
-          return;
+        } catch (e) {
+          if (e instanceof Error && e.message === "ALREADY_CLOCKED_IN") {
+            setOverlayHint("顔をカメラに向けてください");
+            setMessage({
+              type: "error",
+              text: `${identified.name} さんはすでに出勤中です。退勤を選んで打刻してください。`,
+            });
+            return;
+          }
+          throw e;
         }
-
-        const { error } = await supabase.from("attendance_records").insert({
-          employee_id: identified.employeeId,
-          store_id: matchedEmployee.store_id,
-          clock_in: now,
-        });
-
-        if (error) throw error;
         setMessage({ type: "success", text: `${identified.name} さん 出勤しました` });
       } else {
-        const { data: record, error: fetchError } = await supabase
-          .from("attendance_records")
-          .select("id")
-          .eq("employee_id", identified.employeeId)
-          .is("clock_out", null)
-          .maybeSingle();
-
-        if (fetchError) throw fetchError;
-        if (!record) {
-          setOverlayHint("顔をカメラに向けてください");
-          setMessage({
-            type: "error",
-            text: `${identified.name} さんの出勤記録がありません。`,
+        try {
+          await clockOut(supabase, {
+            employeeId: identified.employeeId,
+            clockOut: now,
           });
-          return;
+        } catch (e) {
+          if (e instanceof Error && e.message === "NO_OPEN_RECORD") {
+            setOverlayHint("顔をカメラに向けてください");
+            setMessage({
+              type: "error",
+              text: `${identified.name} さんの出勤記録がありません。`,
+            });
+            return;
+          }
+          if (e instanceof Error && e.message === "CLOCK_OUT_UPDATE_FAILED") {
+            setOverlayHint("顔をカメラに向けてください");
+            setMessage({
+              type: "error",
+              text: `${identified.name} さんの退勤更新に失敗しました。もう一度お試しください。`,
+            });
+            return;
+          }
+          throw e;
         }
-
-        const { error } = await supabase
-          .from("attendance_records")
-          .update({ clock_out: now })
-          .eq("id", record.id);
-
-        if (error) throw error;
         setMessage({ type: "success", text: `${identified.name} さん 退勤しました` });
       }
 
