@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:line-groups": "node scripts/apply-line-groups-migration.mjs"
+    "db:line-groups": "node scripts/apply-line-groups-migration.mjs",
+    "db:migrate:line-groups": "node scripts/apply-migration-via-management-api.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
