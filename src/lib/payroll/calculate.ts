@@ -81,9 +81,9 @@ export function calculateEmployeePayroll(
   const actualNightHours = minutesToHours(nightMinutes);
   const regularHours = roundMinutesToHalfHours(regularMinutes);
   const nightHours = roundMinutesToHalfHours(nightMinutes);
-  const regularPay = roundYen(regularHours * hourlyRate);
-  const nightPay = roundYen(nightHours * hourlyRate * NIGHT_RATE_MULTIPLIER);
-  const totalPay = roundYen(regularPay + nightPay);
+  const regularPay = floorYen(regularHours * hourlyRate);
+  const nightPay = floorYen(nightHours * hourlyRate * NIGHT_RATE_MULTIPLIER);
+  const totalPay = floorYen(regularPay + nightPay);
 
   return {
     employeeId,
@@ -103,8 +103,9 @@ function minutesToHours(minutes: number): number {
   return Math.round((minutes / 60) * 100) / 100;
 }
 
-function roundYen(y: number): number {
-  return Math.round(y);
+/** 給与金額は小数点以下切り捨て（例: 588.5 → 588） */
+function floorYen(y: number): number {
+  return Math.floor(y);
 }
 
 /** 月末判定（JST） */
