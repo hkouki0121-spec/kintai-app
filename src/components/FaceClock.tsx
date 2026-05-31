@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { clockIn, clockOut } from "@/lib/attendance/clock";
+import { performStamp, type StampAction } from "@/lib/attendance/clock";
 import type { IdentifiedEmployee } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -124,7 +124,7 @@ export function FaceClock() {
     setOverlayHint("顔をカメラに向けてください");
   }, [mode]);
 
-  const handleStamp = async () => {
+  const handleStamp = async (action: StampAction) => {
     if (!videoRef.current || !faceApiRef.current || processing) return;
 
     if (!cameraReady) {
@@ -191,52 +191,49 @@ export function FaceClock() {
       setOverlayHint("認証成功");
       const now = new Date().toISOString();
 
-      if (mode === "clock_in") {
-        try {
-          await clockIn(supabase, {
-            employeeId: identified.employeeId,
-            storeId: matchedEmployee.store_id,
-            clockIn: now,
+      try {
+        await performStamp(supabase, action, {
+          employeeId: identified.employeeId,
+          storeId: matchedEmployee.store_id,
+          timestamp: now,
+        });
+      } catch (e) {
+        if (!(e instanceof Error)) throw e;
+
+        if (e.message === "ALREADY_CLOCKED_IN") {
+          setOverlayHint("顔をカメラに向けてください");
+          setMessage({
+            type: "error",
+            text: `${identified.name} さんはすでに出勤中です。退勤を選んで打刻してください。`,
           });
-        } catch (e) {
-          if (e instanceof Error && e.message === "ALREADY_CLOCKED_IN") {
-            setOverlayHint("顔をカメラに向けてください");
-            setMessage({
-              type: "error",
-              text: `${identified.name} さんはすでに出勤中です。退勤を選んで打刻してください。`,
-            });
-            return;
-          }
-          throw e;
+          return;
         }
-        setMessage({ type: "success", text: `${identified.name} さん 出勤しました` });
-      } else {
-        try {
-          await clockOut(supabase, {
-            employeeId: identified.employeeId,
-            clockOut: now,
+        if (e.message === "NO_OPEN_RECORD") {
+          setOverlayHint("顔をカメラに向けてください");
+          setMessage({
+            type: "error",
+            text: `${identified.name} さんの出勤記録がありません。`,
           });
-        } catch (e) {
-          if (e instanceof Error && e.message === "NO_OPEN_RECORD") {
-            setOverlayHint("顔をカメラに向けてください");
-            setMessage({
-              type: "error",
-              text: `${identified.name} さんの出勤記録がありません。`,
-            });
-            return;
-          }
-          if (e instanceof Error && e.message === "CLOCK_OUT_UPDATE_FAILED") {
-            setOverlayHint("顔をカメラに向けてください");
-            setMessage({
-              type: "error",
-              text: `${identified.name} さんの退勤更新に失敗しました。もう一度お試しください。`,
-            });
-            return;
-          }
-          throw e;
+          return;
         }
-        setMessage({ type: "success", text: `${identified.name} さん 退勤しました` });
+        if (e.message === "CLOCK_OUT_UPDATE_FAILED") {
+          setOverlayHint("顔をカメラに向けてください");
+          setMessage({
+            type: "error",
+            text: `${identified.name} さんの退勤更新に失敗しました。もう一度お試しください。`,
+          });
+          return;
+        }
+        throw e;
       }
+
+      setMessage({
+        type: "success",
+        text:
+          action === "clock_in"
+            ? `${identified.name} さん 出勤しました`
+            : `${identified.name} さん 退勤しました`,
+      });
 
       setOverlayHint("顔をカメラに向けてください");
     } catch (e) {
@@ -318,7 +315,7 @@ export function FaceClock() {
 
       <Button
         fullWidth
-        onClick={handleStamp}
+        onClick={() => handleStamp(mode)}
         disabled={!canStamp}
         variant={mode === "clock_in" ? "primary" : "secondary"}
         className="py-4 text-base"
