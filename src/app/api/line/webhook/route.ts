@@ -3,6 +3,7 @@ import {
   handleLineWebhookEvents,
   verifyLineWebhookSignature,
 } from "@/lib/line/webhook-handler";
+import { getLineEnvDiagnostics } from "@/lib/line/env";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,22 @@ function okResponse() {
 
 /** LINE Developers Console / 疎通確認（GET・HEAD） */
 export async function GET() {
-  return NextResponse.json({ ok: true, service: "line-webhook" }, { status: 200 });
+  const config = getLineEnvDiagnostics();
+
+  return NextResponse.json(
+    {
+      ok: true,
+      service: "line-webhook",
+      config: {
+        expectedSecretEnvVar: config.expectedSecretEnvVar,
+        secretConfigured: config.secretConfigured,
+        resolvedSecretEnvVar: config.resolvedSecretEnvVar,
+        secretLength: config.secretLength,
+        accessTokenConfigured: config.accessTokenConfigured,
+      },
+    },
+    { status: 200 }
+  );
 }
 
 export async function HEAD() {
@@ -25,10 +41,32 @@ export async function HEAD() {
 export async function POST(request: Request) {
   const body = await request.text();
   const signature = request.headers.get("x-line-signature");
+  const config = getLineEnvDiagnostics();
+
+  if (!config.secretConfigured) {
+    console.error("[line/webhook] LINE_CHANNEL_SECRET が未設定のため 401 を返します");
+    return NextResponse.json(
+      {
+        error: "channel secret not configured",
+        expectedEnvVar: config.expectedSecretEnvVar,
+      },
+      { status: 401 }
+    );
+  }
 
   if (!verifyLineWebhookSignature(body, signature)) {
-    console.error("[line/webhook] signature verification failed");
-    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+    console.error("[line/webhook] signature verification failed", {
+      resolvedSecretEnvVar: config.resolvedSecretEnvVar,
+      secretLength: config.secretLength,
+    });
+    return NextResponse.json(
+      {
+        error: "invalid signature",
+        expectedEnvVar: config.expectedSecretEnvVar,
+        resolvedEnvVar: config.resolvedSecretEnvVar,
+      },
+      { status: 401 }
+    );
   }
 
   try {
@@ -39,6 +77,5 @@ export async function POST(request: Request) {
     console.error("[line/webhook]", error);
   }
 
-  // LINE は 200 以外をエラー扱いするため、処理失敗時も 200 を返す
   return okResponse();
 }

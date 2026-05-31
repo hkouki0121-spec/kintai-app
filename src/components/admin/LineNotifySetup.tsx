@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LineGroup } from "@/types/database";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -12,11 +12,30 @@ type Props = {
   webhookUrl: string;
 };
 
+type LineConfigResponse = {
+  config?: {
+    expectedSecretEnvVar: string;
+    secretConfigured: boolean;
+    resolvedSecretEnvVar: string | null;
+    secretLength: number | null;
+    accessTokenConfigured: boolean;
+  };
+  hints?: string[];
+};
+
 export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Props) {
   const [groups, setGroups] = useState(initialGroups);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [lineConfig, setLineConfig] = useState<LineConfigResponse | null>(null);
+
+  useEffect(() => {
+    fetch("/api/line/config")
+      .then((response) => response.json())
+      .then((payload: LineConfigResponse) => setLineConfig(payload))
+      .catch(() => setLineConfig(null));
+  }, []);
 
   const copyText = useCallback(async (key: string, text: string) => {
     try {
@@ -152,6 +171,35 @@ export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Pro
           </Button>
         </div>
       </Alert>
+
+      {lineConfig?.config && (
+        <Alert type={lineConfig.config.secretConfigured ? "success" : "error"}>
+          <p className="font-medium">
+            Webhook 署名検証:{" "}
+            {lineConfig.config.secretConfigured
+              ? `${lineConfig.config.resolvedSecretEnvVar ?? lineConfig.config.expectedSecretEnvVar} 設定済み（${lineConfig.config.secretLength} 文字）`
+              : `${lineConfig.config.expectedSecretEnvVar} が未設定です（Verify は 401 になります）`}
+          </p>
+          <p className="mt-1 text-sm">
+            参照環境変数: <code>{lineConfig.config.expectedSecretEnvVar}</code>
+            {lineConfig.config.resolvedSecretEnvVar &&
+              lineConfig.config.resolvedSecretEnvVar !== lineConfig.config.expectedSecretEnvVar && (
+                <>（実際: <code>{lineConfig.config.resolvedSecretEnvVar}</code>）</>
+              )}
+          </p>
+          <p className="mt-1 text-sm">
+            Access Token:{" "}
+            {lineConfig.config.accessTokenConfigured ? "設定済み" : "未設定"}（
+            <code>LINE_CHANNEL_ACCESS_TOKEN</code>・通知送信用）
+          </p>
+          {!lineConfig.config.secretConfigured && (
+            <p className="mt-2 text-sm">
+              Vercel に <code>LINE_CHANNEL_SECRET</code> を追加してください。値は LINE Developers
+              Console の Basic settings → Channel secret です（Access token ではありません）。
+            </p>
+          )}
+        </Alert>
+      )}
 
       {message && (
         <Alert type={message.includes("失敗") ? "error" : "success"}>{message}</Alert>

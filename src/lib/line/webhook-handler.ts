@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getLineChannelSecret } from "@/lib/line/env";
 import { upsertLineGroup } from "@/lib/line/upsert-group";
 
 type LineEventSource = {
@@ -18,23 +19,41 @@ type LineWebhookBody = {
 };
 
 export function verifyLineWebhookSignature(body: string, signature: string | null): boolean {
-  const secret = process.env.LINE_CHANNEL_SECRET?.trim();
-  if (!secret || !signature) {
-    if (!secret) {
-      console.error("[line/webhook] LINE_CHANNEL_SECRET が未設定です");
-    }
+  const { secret, envKey } = getLineChannelSecret();
+  const received = signature?.trim();
+
+  if (!secret) {
+    console.error(
+      "[line/webhook] Channel secret 未設定。Vercel に LINE_CHANNEL_SECRET を設定してください（Channel access token ではありません）"
+    );
     return false;
   }
 
-  const digest = crypto.createHmac("SHA256", secret).update(body).digest("base64");
-  const expected = Buffer.from(digest);
-  const received = Buffer.from(signature);
-
-  if (expected.length !== received.length) {
+  if (!received) {
+    console.error("[line/webhook] x-line-signature ヘッダーがありません");
     return false;
   }
 
-  return crypto.timingSafeEqual(expected, received);
+  const hash = crypto.createHmac("SHA256", secret).update(body).digest("base64");
+
+  if (hash.length !== received.length) {
+    console.error("[line/webhook] signature length mismatch", {
+      envKey,
+      secretLength: secret.length,
+    });
+    return false;
+  }
+
+  const isValid = crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(received));
+  if (!isValid) {
+    console.error("[line/webhook] signature mismatch", {
+      envKey,
+      secretLength: secret.length,
+      bodyLength: body.length,
+    });
+  }
+
+  return isValid;
 }
 
 function extractGroupId(event: LineWebhookEvent): string | null {
