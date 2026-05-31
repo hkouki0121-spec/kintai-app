@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Store } from "@/types/database";
+import type { LineGroup, Store } from "@/types/database";
+import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
@@ -10,23 +11,18 @@ import { Alert } from "@/components/ui/Alert";
 
 type Props = {
   initialStores: Store[];
+  initialGroups: LineGroup[];
+  addFriendUrl: string | null;
+  webhookUrl: string;
 };
 
 type StoreEditableFields = Partial<
-  Pick<
-    Store,
-    | "name"
-    | "address"
-    | "phone"
-    | "manager_name"
-    | "line_user_id"
-    | "line_group_id"
-    | "line_notify_enabled"
-  >
+  Pick<Store, "name" | "address" | "phone" | "manager_name" | "line_group_id" | "line_notify_enabled">
 >;
 
-export function StoreManager({ initialStores }: Props) {
+export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl }: Props) {
   const [stores, setStores] = useState(initialStores);
+  const [groups, setGroups] = useState(initialGroups);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -34,9 +30,17 @@ export function StoreManager({ initialStores }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
-  const refresh = async () => {
+  const refreshStores = async () => {
     const { data } = await supabase.from("stores").select("*").order("name");
     setStores((data as Store[]) ?? []);
+  };
+
+  const refreshGroups = async () => {
+    const response = await fetch("/api/line/groups");
+    const payload = (await response.json()) as { groups?: LineGroup[] };
+    if (response.ok) {
+      setGroups(payload.groups ?? []);
+    }
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -55,7 +59,7 @@ export function StoreManager({ initialStores }: Props) {
     setAddress("");
     setPhone("");
     setMessage("店舗を追加しました");
-    await refresh();
+    await refreshStores();
   };
 
   const handleUpdate = async (id: string, fields: StoreEditableFields) => {
@@ -65,16 +69,27 @@ export function StoreManager({ initialStores }: Props) {
       return;
     }
     setMessage("店舗情報を更新しました");
-    await refresh();
+    await refreshStores();
   };
 
   const handleToggleActive = async (store: Store) => {
     await supabase.from("stores").update({ is_active: !store.is_active }).eq("id", store.id);
-    await refresh();
+    await refreshStores();
+  };
+
+  const selectedGroupLabel = (groupId: string | null) => {
+    if (!groupId) return "通知グループを選択";
+    return groups.find((group) => group.group_id === groupId)?.group_name ?? groupId;
   };
 
   return (
     <div className="space-y-6">
+      <LineNotifySetup
+        initialGroups={groups}
+        addFriendUrl={addFriendUrl}
+        webhookUrl={webhookUrl}
+      />
+
       <Card>
         <h3 className="font-semibold">新規店舗</h3>
         <form onSubmit={handleAdd} className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -121,7 +136,7 @@ export function StoreManager({ initialStores }: Props) {
                       無効
                     </span>
                   )}
-                  {store.line_notify_enabled && (
+                  {store.line_notify_enabled && store.line_group_id && (
                     <span className="ml-2 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
                       LINE通知ON
                     </span>
@@ -129,6 +144,11 @@ export function StoreManager({ initialStores }: Props) {
                 </p>
                 {store.manager_name && (
                   <p className="text-sm text-slate-600">管理者：{store.manager_name}</p>
+                )}
+                {store.line_group_id && (
+                  <p className="text-sm text-slate-500">
+                    通知先：{selectedGroupLabel(store.line_group_id)}
+                  </p>
                 )}
                 {store.address && <p className="text-sm text-slate-500">{store.address}</p>}
                 {store.phone && <p className="text-sm text-slate-500">TEL: {store.phone}</p>}
@@ -175,32 +195,27 @@ export function StoreManager({ initialStores }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-slate-600">LINEユーザーID</label>
-                  <Input
-                    defaultValue={store.line_user_id ?? ""}
-                    placeholder="Uxxxxxxxx..."
-                    onBlur={(e) =>
-                      handleUpdate(store.id, { line_user_id: e.target.value || null })
-                    }
-                  />
-                  <a
-                    href="/line-user-id"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-block text-xs text-blue-600 underline-offset-2 hover:underline"
-                  >
-                    LINEユーザーIDを取得する
-                  </a>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm text-slate-600">LINEグループID</label>
-                  <Input
+                  <label className="mb-1 block text-sm text-slate-600">LINE通知グループ</label>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     defaultValue={store.line_group_id ?? ""}
-                    placeholder="Cxxxxxxxx..."
-                    onBlur={(e) =>
-                      handleUpdate(store.id, { line_group_id: e.target.value || null })
-                    }
-                  />
+                    onChange={async (e) => {
+                      await handleUpdate(store.id, {
+                        line_group_id: e.target.value || null,
+                      });
+                      await refreshGroups();
+                    }}
+                  >
+                    <option value="">通知グループを選択</option>
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.group_id}>
+                        {group.group_name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    上の「グループ一覧を更新」で Bot 参加グループを読み込んでから選択してください。
+                  </p>
                 </div>
                 <div className="flex items-end">
                   <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -223,10 +238,6 @@ export function StoreManager({ initialStores }: Props) {
                       handleUpdate(store.id, { address: e.target.value || null })
                     }
                   />
-                </div>
-                <div className="sm:col-span-2 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-                  LINEグループID が設定されている場合はグループへ、未設定の場合は LINEユーザーID
-                  へ通知します。グループID を優先します。
                 </div>
               </div>
             )}

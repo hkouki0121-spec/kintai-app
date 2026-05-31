@@ -1,3 +1,11 @@
+export type LineGroup = {
+  id: string;
+  group_id: string;
+  group_name: string;
+  last_seen_at: string;
+  created_at: string;
+};
+
 export type Store = {
   id: string;
   name: string;

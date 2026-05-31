@@ -15,19 +15,13 @@ export type NotifyStoreAttendanceParams = {
 
 type StoreLineSettings = {
   name: string;
-  line_user_id: string | null;
   line_group_id: string | null;
   line_notify_enabled: boolean;
 };
 
-function resolveLineRecipient(store: StoreLineSettings): string | null {
+function resolveLineGroupId(store: StoreLineSettings): string | null {
   const groupId = store.line_group_id?.trim();
-  if (groupId) return groupId;
-
-  const userId = store.line_user_id?.trim();
-  if (userId) return userId;
-
-  return null;
+  return groupId || null;
 }
 
 async function verifyAttendanceEvent(
@@ -72,7 +66,7 @@ export async function notifyStoreAttendanceLine(
 ): Promise<{ sent: boolean; reason?: string }> {
   const { data: store, error: storeError } = await supabase
     .from("stores")
-    .select("name, line_user_id, line_group_id, line_notify_enabled")
+    .select("name, line_group_id, line_notify_enabled")
     .eq("id", params.storeId)
     .maybeSingle();
 
@@ -84,9 +78,9 @@ export async function notifyStoreAttendanceLine(
     return { sent: false, reason: "notify_disabled" };
   }
 
-  const recipient = resolveLineRecipient(store as StoreLineSettings);
+  const recipient = resolveLineGroupId(store as StoreLineSettings);
   if (!recipient) {
-    return { sent: false, reason: "no_recipient" };
+    return { sent: false, reason: "no_group" };
   }
 
   const verified = await verifyAttendanceEvent(supabase, params);

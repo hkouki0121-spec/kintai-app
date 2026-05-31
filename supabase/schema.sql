@@ -15,6 +15,17 @@ CREATE TABLE IF NOT EXISTS stores (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- LINE Bot が参加しているグループ（Webhook で自動登録）
+CREATE TABLE IF NOT EXISTS line_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id TEXT NOT NULL UNIQUE,
+  group_name TEXT NOT NULL,
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_line_groups_last_seen ON line_groups(last_seen_at DESC);
+
 -- 従業員
 CREATE TABLE IF NOT EXISTS employees (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,11 +95,15 @@ CREATE TRIGGER employees_updated_at
 
 -- RLS
 ALTER TABLE stores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE line_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_payroll ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "admin_all_stores" ON stores
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "admin_all_line_groups" ON line_groups
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "admin_all_employees" ON employees
