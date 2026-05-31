@@ -49,14 +49,17 @@ export async function clockIn(
   }
 }
 
-/** 退勤: INSERT は行わず、clock_out が NULL の最新レコードのみ UPDATE */
+/**
+ * 退勤: INSERT / UPSERT は一切行わない。
+ * clock_out IS NULL の最新1件のみ UPDATE する。
+ */
 export async function clockOut(
   supabase: SupabaseClient,
   { employeeId, clockOut: clockOutAt }: ClockOutParams
 ): Promise<void> {
   const { data: record, error: fetchError } = await supabase
     .from("attendance_records")
-    .select("id, clock_in")
+    .select("id")
     .eq("employee_id", employeeId)
     .is("clock_out", null)
     .order("clock_in", { ascending: false })
@@ -70,40 +73,15 @@ export async function clockOut(
     throw new Error("NO_OPEN_RECORD");
   }
 
-  const { data: updated, error: updateError } = await supabase
+  // NOTE: .select() を付けると更新後行の読取が RLS で拒否されることがあるため付けない
+  const { error: updateError } = await supabase
     .from("attendance_records")
     .update({ clock_out: clockOutAt })
     .eq("id", record.id)
     .eq("employee_id", employeeId)
-    .is("clock_out", null)
-    .select("id, clock_out")
-    .maybeSingle();
+    .is("clock_out", null);
 
   if (updateError) {
     throw new Error(parseSupabaseError(updateError));
   }
-  if (!updated) {
-    throw new Error("CLOCK_OUT_UPDATE_FAILED");
-  }
-}
-
-/** 打刻種別に応じて clockIn / clockOut のみ呼び出す（退勤で insert しない） */
-export async function performStamp(
-  supabase: SupabaseClient,
-  action: StampAction,
-  params: { employeeId: string; storeId: string; timestamp: string }
-): Promise<void> {
-  if (action === "clock_in") {
-    await clockIn(supabase, {
-      employeeId: params.employeeId,
-      storeId: params.storeId,
-      clockIn: params.timestamp,
-    });
-    return;
-  }
-
-  await clockOut(supabase, {
-    employeeId: params.employeeId,
-    clockOut: params.timestamp,
-  });
 }

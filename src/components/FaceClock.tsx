@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { performStamp, type StampAction } from "@/lib/attendance/clock";
+import { clockIn, clockOut } from "@/lib/attendance/clock";
 import type { IdentifiedEmployee } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -124,7 +124,31 @@ export function FaceClock() {
     setOverlayHint("顔をカメラに向けてください");
   }, [mode]);
 
-  const handleStamp = async (action: StampAction) => {
+  /** 顔認証後に出勤 INSERT のみ実行 */
+  const runClockIn = async (identified: IdentifiedEmployee, storeId: string) => {
+    const now = new Date().toISOString();
+    await clockIn(supabase, {
+      employeeId: identified.employeeId,
+      storeId,
+      clockIn: now,
+    });
+    setMessage({ type: "success", text: `${identified.name} さん 出勤しました` });
+  };
+
+  /** 顔認証後に退勤 UPDATE のみ実行（INSERT しない） */
+  const runClockOut = async (identified: IdentifiedEmployee) => {
+    const now = new Date().toISOString();
+    await clockOut(supabase, {
+      employeeId: identified.employeeId,
+      clockOut: now,
+    });
+    setMessage({ type: "success", text: `${identified.name} さん 退勤しました` });
+  };
+
+  const handleClockIn = () => handleStamp("clock_in");
+  const handleClockOut = () => handleStamp("clock_out");
+
+  const handleStamp = async (action: Mode) => {
     if (!videoRef.current || !faceApiRef.current || processing) return;
 
     if (!cameraReady) {
@@ -171,10 +195,7 @@ export function FaceClock() {
         return;
       }
 
-      const identified: IdentifiedEmployee | null = faceApiRef.current.identifyEmployee(
-        scan.descriptor,
-        employees
-      );
+      const identified = faceApiRef.current.identifyEmployee(scan.descriptor, employees);
 
       if (!identified) {
         setOverlayHint("顔をカメラに向けてください");
@@ -189,14 +210,13 @@ export function FaceClock() {
       }
 
       setOverlayHint("認証成功");
-      const now = new Date().toISOString();
 
       try {
-        await performStamp(supabase, action, {
-          employeeId: identified.employeeId,
-          storeId: matchedEmployee.store_id,
-          timestamp: now,
-        });
+        if (action === "clock_in") {
+          await runClockIn(identified, matchedEmployee.store_id);
+        } else {
+          await runClockOut(identified);
+        }
       } catch (e) {
         if (!(e instanceof Error)) throw e;
 
@@ -216,24 +236,8 @@ export function FaceClock() {
           });
           return;
         }
-        if (e.message === "CLOCK_OUT_UPDATE_FAILED") {
-          setOverlayHint("顔をカメラに向けてください");
-          setMessage({
-            type: "error",
-            text: `${identified.name} さんの退勤更新に失敗しました。もう一度お試しください。`,
-          });
-          return;
-        }
         throw e;
       }
-
-      setMessage({
-        type: "success",
-        text:
-          action === "clock_in"
-            ? `${identified.name} さん 出勤しました`
-            : `${identified.name} さん 退勤しました`,
-      });
 
       setOverlayHint("顔をカメラに向けてください");
     } catch (e) {
@@ -313,19 +317,26 @@ export function FaceClock() {
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
-      <Button
-        fullWidth
-        onClick={() => handleStamp(mode)}
-        disabled={!canStamp}
-        variant={mode === "clock_in" ? "primary" : "secondary"}
-        className="py-4 text-base"
-      >
-        {processing
-          ? "認証中..."
-          : mode === "clock_in"
-            ? "出勤する"
-            : "退勤する"}
-      </Button>
+      {mode === "clock_in" ? (
+        <Button
+          fullWidth
+          onClick={handleClockIn}
+          disabled={!canStamp}
+          className="py-4 text-base"
+        >
+          {processing ? "認証中..." : "出勤する"}
+        </Button>
+      ) : (
+        <Button
+          fullWidth
+          onClick={handleClockOut}
+          disabled={!canStamp}
+          variant="secondary"
+          className="py-4 text-base"
+        >
+          {processing ? "認証中..." : "退勤する"}
+        </Button>
+      )}
 
       <p className="text-center text-xs leading-relaxed text-slate-500">
         お一人で正面を向けてください。顔認証に成功した場合のみ打刻されます。

@@ -100,13 +100,10 @@ CREATE POLICY "anon_read_active_employees" ON employees
   USING (is_active = true);
 
 CREATE POLICY "anon_insert_attendance" ON attendance_records
-  FOR INSERT TO anon
-  WITH CHECK (clock_out IS NULL);
+  FOR INSERT TO anon WITH CHECK (true);
 
 CREATE POLICY "anon_update_attendance" ON attendance_records
-  FOR UPDATE TO anon
-  USING (clock_out IS NULL)
-  WITH CHECK (clock_out IS NOT NULL);
+  FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 CREATE POLICY "anon_read_open_attendance" ON attendance_records
   FOR SELECT TO anon USING (clock_out IS NULL);
