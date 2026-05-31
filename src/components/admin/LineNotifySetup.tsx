@@ -147,7 +147,7 @@ export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Pro
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
               >
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{group.group_name}</p>
+                  <p className="text-sm font-medium text-slate-900">{group.group_name ?? group.group_id}</p>
                   <p className="font-mono text-xs text-slate-500">{group.group_id}</p>
                 </div>
                 <Button

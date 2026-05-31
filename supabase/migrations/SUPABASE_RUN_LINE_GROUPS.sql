@@ -1,4 +1,5 @@
 -- LINE グループ一覧（Webhook で Bot 参加グループを自動登録）
+-- Supabase SQL Editor で実行してください
 
 CREATE TABLE IF NOT EXISTS public.line_groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,3 +20,10 @@ CREATE POLICY "admin_all_line_groups" ON public.line_groups
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.line_groups TO authenticated;
 GRANT ALL ON public.line_groups TO service_role;
+
+-- 確認
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'line_groups'
+ORDER BY ordinal_position;

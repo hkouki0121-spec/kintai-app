@@ -1,7 +1,7 @@
 export type LineGroup = {
   id: string;
   group_id: string;
-  group_name: string;
+  group_name: string | null;
   last_seen_at: string;
   created_at: string;
 };

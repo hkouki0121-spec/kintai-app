@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS stores (
 CREATE TABLE IF NOT EXISTS line_groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id TEXT NOT NULL UNIQUE,
-  group_name TEXT NOT NULL,
+  group_name TEXT,
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

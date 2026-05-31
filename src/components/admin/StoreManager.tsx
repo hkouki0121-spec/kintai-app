@@ -209,7 +209,7 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                     <option value="">通知グループを選択</option>
                     {groups.map((group) => (
                       <option key={group.id} value={group.group_id}>
-                        {group.group_name}
+                        {group.group_name ?? group.group_id}
                       </option>
                     ))}
                   </select>
