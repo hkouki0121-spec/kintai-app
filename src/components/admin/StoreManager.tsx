@@ -12,6 +12,19 @@ type Props = {
   initialStores: Store[];
 };
 
+type StoreEditableFields = Partial<
+  Pick<
+    Store,
+    | "name"
+    | "address"
+    | "phone"
+    | "manager_name"
+    | "line_user_id"
+    | "line_group_id"
+    | "line_notify_enabled"
+  >
+>;
+
 export function StoreManager({ initialStores }: Props) {
   const [stores, setStores] = useState(initialStores);
   const [name, setName] = useState("");
@@ -45,13 +58,14 @@ export function StoreManager({ initialStores }: Props) {
     await refresh();
   };
 
-  const handleUpdate = async (
-    id: string,
-    fields: Partial<Pick<Store, "name" | "address" | "phone">>
-  ) => {
+  const handleUpdate = async (id: string, fields: StoreEditableFields) => {
     const { error } = await supabase.from("stores").update(fields).eq("id", id);
-    if (error) setMessage(error.message);
-    else await refresh();
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+    setMessage("店舗情報を更新しました");
+    await refresh();
   };
 
   const handleToggleActive = async (store: Store) => {
@@ -84,7 +98,13 @@ export function StoreManager({ initialStores }: Props) {
         </form>
         {message && (
           <div className="mt-3">
-            <Alert type={message.includes("追加") ? "success" : "error"}>{message}</Alert>
+            <Alert
+              type={
+                message.includes("追加") || message.includes("更新") ? "success" : "error"
+              }
+            >
+              {message}
+            </Alert>
           </div>
         )}
       </Card>
@@ -101,7 +121,15 @@ export function StoreManager({ initialStores }: Props) {
                       無効
                     </span>
                   )}
+                  {store.line_notify_enabled && (
+                    <span className="ml-2 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                      LINE通知ON
+                    </span>
+                  )}
                 </p>
+                {store.manager_name && (
+                  <p className="text-sm text-slate-600">管理者：{store.manager_name}</p>
+                )}
                 {store.address && <p className="text-sm text-slate-500">{store.address}</p>}
                 {store.phone && <p className="text-sm text-slate-500">TEL: {store.phone}</p>}
               </div>
@@ -128,6 +156,16 @@ export function StoreManager({ initialStores }: Props) {
                   />
                 </div>
                 <div>
+                  <label className="mb-1 block text-sm text-slate-600">管理者名</label>
+                  <Input
+                    defaultValue={store.manager_name ?? ""}
+                    placeholder="例：田中 太郎"
+                    onBlur={(e) =>
+                      handleUpdate(store.id, { manager_name: e.target.value || null })
+                    }
+                  />
+                </div>
+                <div>
                   <label className="mb-1 block text-sm text-slate-600">電話番号</label>
                   <Input
                     defaultValue={store.phone ?? ""}
@@ -135,6 +173,39 @@ export function StoreManager({ initialStores }: Props) {
                       handleUpdate(store.id, { phone: e.target.value || null })
                     }
                   />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-600">LINEユーザーID</label>
+                  <Input
+                    defaultValue={store.line_user_id ?? ""}
+                    placeholder="Uxxxxxxxx..."
+                    onBlur={(e) =>
+                      handleUpdate(store.id, { line_user_id: e.target.value || null })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-600">LINEグループID</label>
+                  <Input
+                    defaultValue={store.line_group_id ?? ""}
+                    placeholder="Cxxxxxxxx..."
+                    onBlur={(e) =>
+                      handleUpdate(store.id, { line_group_id: e.target.value || null })
+                    }
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300"
+                      defaultChecked={store.line_notify_enabled}
+                      onChange={(e) =>
+                        handleUpdate(store.id, { line_notify_enabled: e.target.checked })
+                      }
+                    />
+                    LINE通知を有効にする
+                  </label>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm text-slate-600">住所</label>
@@ -144,6 +215,10 @@ export function StoreManager({ initialStores }: Props) {
                       handleUpdate(store.id, { address: e.target.value || null })
                     }
                   />
+                </div>
+                <div className="sm:col-span-2 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+                  LINEグループID が設定されている場合はグループへ、未設定の場合は LINEユーザーID
+                  へ通知します。グループID を優先します。
                 </div>
               </div>
             )}

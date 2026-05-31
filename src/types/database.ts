@@ -3,6 +3,10 @@ export type Store = {
   name: string;
   address: string | null;
   phone: string | null;
+  manager_name: string | null;
+  line_user_id: string | null;
+  line_group_id: string | null;
+  line_notify_enabled: boolean;
   is_active: boolean;
   created_at: string;
 };

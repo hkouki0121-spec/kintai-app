@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS stores (
   name TEXT NOT NULL,
   address TEXT,
   phone TEXT,
+  manager_name TEXT,
+  line_user_id TEXT,
+  line_group_id TEXT,
+  line_notify_enabled BOOLEAN NOT NULL DEFAULT false,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
+import { notifyLineAttendance } from "@/lib/attendance/notify-line";
 import { createKioskClient, getSupabaseAuthRole } from "@/lib/supabase/kiosk-client";
 import type { IdentifiedEmployee } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
@@ -132,15 +133,29 @@ export function FaceClock() {
       storeId,
       clockIn: now,
     });
+    notifyLineAttendance({
+      type: "clock_in",
+      employeeId: identified.employeeId,
+      storeId,
+      employeeName: identified.name,
+      timestamp: now,
+    });
     setMessage({ type: "success", text: `${identified.name} さん 出勤しました` });
   };
 
   /** 顔認証後に退勤 UPDATE のみ実行（INSERT しない） */
-  const runClockOut = async (identified: IdentifiedEmployee) => {
+  const runClockOut = async (identified: IdentifiedEmployee, storeId: string) => {
     const now = new Date().toISOString();
     await clockOut(supabase, {
       employeeId: identified.employeeId,
       clockOut: now,
+    });
+    notifyLineAttendance({
+      type: "clock_out",
+      employeeId: identified.employeeId,
+      storeId,
+      employeeName: identified.name,
+      timestamp: now,
     });
     setMessage({ type: "success", text: `${identified.name} さん 退勤しました` });
   };
@@ -220,7 +235,7 @@ export function FaceClock() {
         if (action === "clock_in") {
           await runClockIn(identified, matchedEmployee.store_id);
         } else {
-          await runClockOut(identified);
+          await runClockOut(identified, matchedEmployee.store_id);
         }
       } catch (e) {
         if (!(e instanceof Error)) throw e;
