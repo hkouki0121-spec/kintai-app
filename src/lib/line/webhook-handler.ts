@@ -18,11 +18,23 @@ type LineWebhookBody = {
 };
 
 export function verifyLineWebhookSignature(body: string, signature: string | null): boolean {
-  const secret = process.env.LINE_CHANNEL_SECRET;
-  if (!secret || !signature) return false;
+  const secret = process.env.LINE_CHANNEL_SECRET?.trim();
+  if (!secret || !signature) {
+    if (!secret) {
+      console.error("[line/webhook] LINE_CHANNEL_SECRET が未設定です");
+    }
+    return false;
+  }
 
   const digest = crypto.createHmac("SHA256", secret).update(body).digest("base64");
-  return digest === signature;
+  const expected = Buffer.from(digest);
+  const received = Buffer.from(signature);
+
+  if (expected.length !== received.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expected, received);
 }
 
 function extractGroupId(event: LineWebhookEvent): string | null {

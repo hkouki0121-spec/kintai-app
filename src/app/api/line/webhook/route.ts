@@ -5,9 +5,20 @@ import {
 } from "@/lib/line/webhook-handler";
 import { createServiceClient } from "@/lib/supabase/service";
 
-/** LINE Developers Console の接続確認（GET） */
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+function okResponse() {
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+/** LINE Developers Console / 疎通確認（GET・HEAD） */
 export async function GET() {
   return NextResponse.json({ ok: true, service: "line-webhook" }, { status: 200 });
+}
+
+export async function HEAD() {
+  return new NextResponse(null, { status: 200 });
 }
 
 /** LINE Messaging API Webhook（Bot 参加グループを自動登録） */
@@ -16,6 +27,7 @@ export async function POST(request: Request) {
   const signature = request.headers.get("x-line-signature");
 
   if (!verifyLineWebhookSignature(body, signature)) {
+    console.error("[line/webhook] signature verification failed");
     return NextResponse.json({ error: "invalid signature" }, { status: 401 });
   }
 
@@ -28,5 +40,5 @@ export async function POST(request: Request) {
   }
 
   // LINE は 200 以外をエラー扱いするため、処理失敗時も 200 を返す
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return okResponse();
 }
