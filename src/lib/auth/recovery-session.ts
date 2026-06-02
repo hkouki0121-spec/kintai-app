@@ -1,10 +1,17 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, Session } from "@supabase/supabase-js";
 
 export type RecoveryTokens = {
   type: string | null;
   accessToken: string | null;
   refreshToken: string | null;
   code: string | null;
+};
+
+const RECOVERY_STORAGE_KEY = "kintai-recovery-session";
+
+type StoredRecoverySession = {
+  access_token: string;
+  refresh_token: string;
 };
 
 function parseParamString(input: string): URLSearchParams {
@@ -31,6 +38,73 @@ function stripAuthParamsFromUrl(): void {
   window.history.replaceState(null, "", window.location.pathname);
 }
 
+function storeRecoverySession(session: Session): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(
+    RECOVERY_STORAGE_KEY,
+    JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    } satisfies StoredRecoverySession)
+  );
+}
+
+export function clearStoredRecoverySession(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(RECOVERY_STORAGE_KEY);
+}
+
+/** 保存済み recovery セッションを復元（cookie 未同期時のフォールバック） */
+export async function restoreStoredRecoverySession(
+  supabase: SupabaseClient
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const raw = sessionStorage.getItem(RECOVERY_STORAGE_KEY);
+  if (!raw) return false;
+
+  try {
+    const stored = JSON.parse(raw) as StoredRecoverySession;
+    const { data, error } = await supabase.auth.setSession({
+      access_token: stored.access_token,
+      refresh_token: stored.refresh_token,
+    });
+    if (error || !data.session) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyActiveSession(
+  supabase: SupabaseClient
+): Promise<{ ok: true; session: Session } | { ok: false; error: string }> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return {
+      ok: false,
+      error: "セッションの確立に失敗しました。リンクの有効期限を確認してください。",
+    };
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    return {
+      ok: false,
+      error: "セッションの確立に失敗しました。リンクの有効期限を確認してください。",
+    };
+  }
+
+  return { ok: true, session };
+}
+
 export type EstablishRecoverySessionResult =
   | { ok: true }
   | { ok: false; error: string };
@@ -46,7 +120,7 @@ export async function establishRecoverySession(
   const tokens = parseRecoveryTokensFromUrl(window.location.href);
 
   if (tokens.code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(tokens.code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(tokens.code);
     if (error) {
       return {
         ok: false,
@@ -54,7 +128,8 @@ export async function establishRecoverySession(
       };
     }
     stripAuthParamsFromUrl();
-    return { ok: true };
+    if (data.session) storeRecoverySession(data.session);
+    return verifyActiveSession(supabase);
   }
 
   if (
@@ -62,7 +137,7 @@ export async function establishRecoverySession(
     tokens.accessToken &&
     tokens.refreshToken
   ) {
-    const { error } = await supabase.auth.setSession({
+    const { data, error } = await supabase.auth.setSession({
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
     });
@@ -73,15 +148,24 @@ export async function establishRecoverySession(
       };
     }
     stripAuthParamsFromUrl();
+    if (data.session) storeRecoverySession(data.session);
+
+    const verified = await verifyActiveSession(supabase);
+    if (!verified.ok) return verified;
+
+    await supabase.auth.refreshSession();
     return { ok: true };
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (session) {
+  const verified = await verifyActiveSession(supabase);
+  if (verified.ok) {
+    storeRecoverySession(verified.session);
     return { ok: true };
+  }
+
+  const restored = await restoreStoredRecoverySession(supabase);
+  if (restored) {
+    return verifyActiveSession(supabase);
   }
 
   return {

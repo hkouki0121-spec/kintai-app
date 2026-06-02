@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { establishRecoverySession } from "@/lib/auth/recovery-session";
+import {
+  clearStoredRecoverySession,
+  establishRecoverySession,
+  restoreStoredRecoverySession,
+} from "@/lib/auth/recovery-session";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
@@ -26,7 +30,12 @@ export default function ResetPasswordPage() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
-      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
+      console.log("[reset-password] onAuthStateChange", {
+        event,
+        hasSession: !!session,
+        userId: session?.user?.id ?? null,
+      });
+      if (event === "PASSWORD_RECOVERY" && session) {
         setReady(true);
         setInitializing(false);
         setError(null);
@@ -37,19 +46,27 @@ export default function ResetPasswordPage() {
       const result = await establishRecoverySession(supabase);
       if (cancelled) return;
 
-      if (result.ok) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-        if (session) {
-          setReady(true);
-          setError(null);
-        } else {
-          setError("セッションの確立に失敗しました。リンクの有効期限を確認してください。");
-        }
+      console.log("[reset-password] init", {
+        establishOk: result.ok,
+        hasSession: !!session,
+        sessionUserId: session?.user?.id ?? null,
+        getUserId: user?.id ?? null,
+        getUserError: userError?.message ?? null,
+      });
+
+      if (result.ok && session && user) {
+        setReady(true);
+        setError(null);
       } else {
-        setError(result.error);
+        setError(result.ok ? "セッションの確立に失敗しました。" : result.error);
       }
 
       setInitializing(false);
@@ -76,28 +93,91 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      setError("セッションが無効です。パスワード再設定を最初からやり直してください。");
-      return;
-    }
-
     setLoading(true);
-    const { error: updateError } = await supabase.auth.updateUser({ password });
 
-    if (updateError) {
-      setError("パスワードの更新に失敗しました。リンクの有効期限を確認してください。");
+    await restoreStoredRecoverySession(supabase);
+
+    const {
+      data: { session: sessionBefore },
+    } = await supabase.auth.getSession();
+    console.log("[reset-password] getSession(before update)", {
+      hasSession: !!sessionBefore,
+      userId: sessionBefore?.user?.id ?? null,
+      expiresAt: sessionBefore?.expires_at ?? null,
+    });
+
+    const {
+      data: { user: userBefore },
+      error: userBeforeError,
+    } = await supabase.auth.getUser();
+    console.log("[reset-password] getUser(before update)", {
+      userId: userBefore?.id ?? null,
+      error: userBeforeError?.message ?? null,
+    });
+
+    if (userBeforeError || !userBefore) {
+      setError(
+        userBeforeError?.message ??
+          "セッションが無効です。パスワード再設定を最初からやり直してください。"
+      );
       setLoading(false);
       return;
     }
 
-    await supabase.auth.signOut();
-    setSuccess(true);
-    setLoading(false);
-    setTimeout(() => router.push("/admin/login"), 2000);
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    console.log("[reset-password] refreshSession", {
+      error: refreshError?.message ?? null,
+    });
+
+    try {
+      const res = await fetch("/api/auth/update-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password }),
+      });
+
+      const data = (await res.json()) as { error?: string; ok?: boolean };
+      console.log("[reset-password] update-password API", {
+        status: res.status,
+        error: data.error ?? null,
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          await restoreStoredRecoverySession(supabase);
+          await supabase.auth.refreshSession();
+          const { error: clientUpdateError } = await supabase.auth.updateUser({ password });
+          console.log("[reset-password] client updateUser fallback", {
+            error: clientUpdateError?.message ?? null,
+            status: clientUpdateError?.status ?? null,
+          });
+          if (!clientUpdateError) {
+            clearStoredRecoverySession();
+            await supabase.auth.signOut();
+            setSuccess(true);
+            setLoading(false);
+            setTimeout(() => router.push("/admin/login"), 2000);
+            return;
+          }
+          setError(clientUpdateError.message);
+        } else {
+          setError(data.error ?? "パスワードの更新に失敗しました。");
+        }
+        setLoading(false);
+        return;
+      }
+
+      clearStoredRecoverySession();
+      await supabase.auth.signOut();
+      setSuccess(true);
+      setLoading(false);
+      setTimeout(() => router.push("/admin/login"), 2000);
+    } catch (fetchError) {
+      console.error("[reset-password] fetch error", fetchError);
+      setError("パスワードの更新に失敗しました。通信環境を確認してください。");
+      setLoading(false);
+    }
   };
 
   return (
