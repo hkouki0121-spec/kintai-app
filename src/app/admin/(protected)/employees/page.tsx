@@ -7,7 +7,7 @@ import type { EmployeeWithStore } from "@/types/database";
 export default async function EmployeesPage() {
   const supabase = await createClient();
   const [{ data: allStores }, { data }] = await Promise.all([
-    supabase.from("stores").select("id, name, is_active").order("name"),
+    supabase.from("stores").select("id, name, is_active, company_id").order("name"),
     supabase
       .from("employees")
       .select("*, stores(id, name)")

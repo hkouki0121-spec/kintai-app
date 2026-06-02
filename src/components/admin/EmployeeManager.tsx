@@ -14,6 +14,7 @@ import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
 import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
 import { formatYen } from "@/lib/format";
 import type { FaceDescriptorEntry } from "@/types/database";
+import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 
 type DeleteTarget = {
   employee: EmployeeWithStore;
@@ -23,10 +24,11 @@ type DeleteTarget = {
 
 type Props = {
   initialEmployees: EmployeeWithStore[];
-  stores: Pick<Store, "id" | "name" | "is_active">[];
+  stores: Pick<Store, "id" | "name" | "is_active" | "company_id">[];
 };
 
 export function EmployeeManager({ initialEmployees, stores }: Props) {
+  const { companyId } = useAdminCompany();
   const [employees, setEmployees] = useState(initialEmployees);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -55,10 +57,17 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
       setMessage("店舗を先に登録してください");
       return;
     }
+    const selectedStore = stores.find((store) => store.id === storeId);
+    const targetCompanyId = selectedStore?.company_id ?? companyId;
+    if (!targetCompanyId) {
+      setMessage("会社が特定できません");
+      return;
+    }
     const { error } = await supabase.from("employees").insert({
       name,
       employee_code: code,
       store_id: storeId,
+      company_id: targetCompanyId,
       hourly_rate: Number(hourlyRate),
     });
     if (error) {
@@ -81,9 +90,13 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
   };
 
   const handleStoreUpdate = async (id: string, newStoreId: string) => {
+    const selectedStore = stores.find((store) => store.id === newStoreId);
     const { error } = await supabase
       .from("employees")
-      .update({ store_id: newStoreId })
+      .update({
+        store_id: newStoreId,
+        company_id: selectedStore?.company_id,
+      })
       .eq("id", id);
     if (!error) await refresh();
   };

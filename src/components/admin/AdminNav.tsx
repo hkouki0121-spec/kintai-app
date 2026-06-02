@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import type { CompanyContext } from "@/lib/auth/company-context";
 import { Button } from "@/components/ui/Button";
 
-const links = [
+const baseLinks = [
   { href: "/admin", label: "ダッシュボード" },
   { href: "/admin/stores", label: "店舗管理" },
   { href: "/admin/employees", label: "従業員" },
@@ -13,10 +14,18 @@ const links = [
   { href: "/admin/payroll", label: "給与" },
 ];
 
-export function AdminNav() {
+type Props = {
+  context: CompanyContext;
+};
+
+export function AdminNav({ context }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+
+  const links = context.isSuperAdmin
+    ? [...baseLinks, { href: "/admin/companies", label: "会社管理" }]
+    : baseLinks;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -24,11 +33,17 @@ export function AdminNav() {
     router.refresh();
   };
 
+  const roleLabel = context.isSuperAdmin
+    ? "スーパー管理者"
+    : context.companyName
+      ? `${context.companyName}`
+      : "会社管理者";
+
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-medium text-blue-600">管理者</p>
+          <p className="text-xs font-medium text-blue-600">{roleLabel}</p>
           <h1 className="text-lg font-bold">勤怠管理</h1>
         </div>
         <nav className="flex flex-wrap gap-2">

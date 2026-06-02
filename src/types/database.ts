@@ -1,13 +1,32 @@
+export type CompanyRole = "super_admin" | "company_admin";
+
+export type Company = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type CompanyMember = {
+  id: string;
+  user_id: string;
+  company_id: string | null;
+  role: CompanyRole;
+  created_at: string;
+};
+
 export type LineGroup = {
   id: string;
   group_id: string;
   group_name: string | null;
+  company_id: string | null;
   last_seen_at: string;
   created_at: string;
 };
 
 export type Store = {
   id: string;
+  company_id: string;
   name: string;
   address: string | null;
   phone: string | null;
@@ -32,6 +51,7 @@ export type FaceDescriptorEntry = {
 
 export type Employee = {
   id: string;
+  company_id: string;
   name: string;
   employee_code: string;
   store_id: string;
@@ -44,6 +64,7 @@ export type Employee = {
 
 export type AttendanceRecord = {
   id: string;
+  company_id: string;
   employee_id: string;
   store_id: string;
   clock_in: string;
@@ -67,6 +88,7 @@ export type AttendanceCorrection = {
 
 export type MonthlyPayroll = {
   id: string;
+  company_id: string;
   employee_id: string;
   year: number;
   month: number;

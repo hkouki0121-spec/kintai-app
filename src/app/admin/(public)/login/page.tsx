@@ -71,6 +71,10 @@ export default function AdminLoginPage() {
         </form>
 
         <p className="mt-4 text-center text-sm">
+          <Link href="/admin/register" className="text-blue-600 hover:underline">
+            会社アカウントを新規登録
+          </Link>
+          {" · "}
           <Link href="/" className="text-blue-600 hover:underline">
             打刻画面に戻る
           </Link>

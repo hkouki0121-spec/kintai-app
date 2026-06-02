@@ -26,7 +26,7 @@ async function findStoreByToken(supabase: ReturnType<typeof createServiceClient>
   const tokenHash = hashQrToken(parsed);
   const { data, error } = await supabase
     .from("stores")
-    .select("id, name, is_active")
+    .select("id, name, is_active, company_id")
     .eq("qr_token_hash", tokenHash)
     .maybeSingle();
 
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
 
     const { data: employee, error: employeeError } = await supabase
       .from("employees")
-      .select("id, name, store_id, is_active")
+      .select("id, name, store_id, company_id, is_active")
       .eq("id", body.employeeId)
       .maybeSingle();
 
@@ -75,6 +75,7 @@ export async function POST(request: Request) {
       await clockIn(supabase, {
         employeeId: employee.id,
         storeId: store.id,
+        companyId: store.company_id,
         clockIn: now,
         isQrClock: true,
       });

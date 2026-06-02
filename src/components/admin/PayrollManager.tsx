@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
+import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 
 type Props = {
   stores: Pick<Store, "id" | "name">[];
@@ -39,6 +40,7 @@ export function PayrollManager({
   initialYear,
   initialMonth,
 }: Props) {
+  const { companyId, isSuperAdmin } = useAdminCompany();
   const [year, setYear] = useState(String(initialYear));
   const [month, setMonth] = useState(String(initialMonth));
   const [storeId, setStoreId] = useState(initialStoreId);
@@ -93,7 +95,8 @@ export function PayrollManager({
         supabase,
         y,
         m,
-        isAllStores(storeId) ? ALL_STORES_VALUE : storeId
+        isAllStores(storeId) ? ALL_STORES_VALUE : storeId,
+        isSuperAdmin ? null : companyId
       );
       await loadPayroll(y, m, storeId);
       const storeLabel = isAllStores(storeId)

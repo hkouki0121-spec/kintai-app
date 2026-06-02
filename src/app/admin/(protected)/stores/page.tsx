@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { requireCompanyContext } from "@/lib/auth/company-context";
 import { StoreManager } from "@/components/admin/StoreManager";
-import type { LineGroup, Store } from "@/types/database";
+import type { Company, LineGroup, Store } from "@/types/database";
 
 function resolveWebhookUrl(host: string | null): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
@@ -12,12 +13,16 @@ function resolveWebhookUrl(host: string | null): string {
 
 export default async function StoresPage() {
   const supabase = await createClient();
+  const context = await requireCompanyContext(supabase);
   const headerStore = await headers();
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
 
-  const [{ data: stores }, { data: groups }] = await Promise.all([
+  const [{ data: stores }, { data: groups }, { data: companies }] = await Promise.all([
     supabase.from("stores").select("*").order("name"),
     supabase.from("line_groups").select("*").order("last_seen_at", { ascending: false }),
+    context.isSuperAdmin
+      ? supabase.from("companies").select("id, name").eq("is_active", true).order("name")
+      : Promise.resolve({ data: [] as Pick<Company, "id" | "name">[] }),
   ]);
 
   const addFriendUrl = process.env.NEXT_PUBLIC_LINE_ADD_FRIEND_URL?.trim() || null;
@@ -40,6 +45,7 @@ export default async function StoresPage() {
         addFriendUrl={addFriendUrl}
         webhookUrl={webhookUrl}
         appBaseUrl={appBaseUrl}
+        companies={(companies as Pick<Company, "id" | "name">[]) ?? []}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyLineAttendance } from "@/lib/attendance/notify-line";
 import { hasRegisteredFace } from "@/lib/face/descriptors";
@@ -18,7 +19,14 @@ type EmployeeRow = {
   id: string;
   name: string;
   store_id: string;
+  company_id: string;
   face_descriptor: unknown;
+};
+
+type StoreRow = {
+  id: string;
+  name: string;
+  company_id: string;
 };
 
 function isCameraPermissionError(err: unknown): boolean {
@@ -32,6 +40,7 @@ function isCameraPermissionError(err: unknown): boolean {
 }
 
 export function FaceClock() {
+  const searchParams = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
   const faceApiRef = useRef<typeof import("@/lib/face/recognition") | null>(null);
   const cameraReadyRef = useRef(false);
@@ -48,6 +57,10 @@ export function FaceClock() {
   const [allEmployees, setAllEmployees] = useState<
     Pick<EmployeeRow, "id" | "name" | "store_id">[]
   >([]);
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState(
+    () => searchParams.get("store") ?? ""
+  );
   const [faceAuthFailed, setFaceAuthFailed] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const supabase = useMemo(() => createKioskClient(), []);
@@ -79,11 +92,35 @@ export function FaceClock() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadStores = async () => {
+      const { data } = await supabase
+        .from("stores")
+        .select("id, name, company_id")
+        .eq("is_active", true)
+        .order("name");
+      const rows = (data as StoreRow[]) ?? [];
+      if (!cancelled) {
+        setStores(rows);
+        if (!selectedStoreId && rows.length === 1) {
+          setSelectedStoreId(rows[0].id);
+        }
+      }
+    };
+
     const loadEmployees = async () => {
+      if (!selectedStoreId) {
+        if (!cancelled) {
+          setEmployees([]);
+          setAllEmployees([]);
+        }
+        return;
+      }
+
       const { data } = await supabase
         .from("employees")
-        .select("id, name, store_id, face_descriptor")
-        .eq("is_active", true);
+        .select("id, name, store_id, company_id, face_descriptor")
+        .eq("is_active", true)
+        .eq("store_id", selectedStoreId);
       const rows = ((data as EmployeeRow[]) ?? []).filter((e) =>
         hasRegisteredFace(e.face_descriptor)
       );
@@ -100,6 +137,7 @@ export function FaceClock() {
     };
 
     const init = async () => {
+      await loadStores();
       await loadEmployees();
       try {
         await startCamera();
@@ -136,7 +174,7 @@ export function FaceClock() {
       const stream = video?.srcObject as MediaStream | undefined;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [startCamera, loadModels, supabase]);
+  }, [startCamera, loadModels, supabase, selectedStoreId]);
 
   useEffect(() => {
     setMessage(null);
@@ -146,17 +184,18 @@ export function FaceClock() {
     setShowQrModal(false);
   }, [mode]);
 
-  const runClockIn = async (identified: MatchResult, storeId: string) => {
+  const runClockIn = async (identified: MatchResult, employee: EmployeeRow) => {
     const now = new Date().toISOString();
     await clockIn(supabase, {
       employeeId: identified.employeeId,
-      storeId,
+      storeId: employee.store_id,
+      companyId: employee.company_id,
       clockIn: now,
     });
     notifyLineAttendance({
       type: "clock_in",
       employeeId: identified.employeeId,
-      storeId,
+      storeId: employee.store_id,
       employeeName: identified.name,
       timestamp: now,
     });
@@ -166,7 +205,7 @@ export function FaceClock() {
     });
   };
 
-  const runClockOut = async (identified: MatchResult, storeId: string) => {
+  const runClockOut = async (identified: MatchResult, employee: EmployeeRow) => {
     const now = new Date().toISOString();
     await clockOut(supabase, {
       employeeId: identified.employeeId,
@@ -175,7 +214,7 @@ export function FaceClock() {
     notifyLineAttendance({
       type: "clock_out",
       employeeId: identified.employeeId,
-      storeId,
+      storeId: employee.store_id,
       employeeName: identified.name,
       timestamp: now,
     });
@@ -200,6 +239,10 @@ export function FaceClock() {
         type: "error",
         text: "顔認識モデルが読み込まれていません。ページを再読み込みしてください。",
       });
+      return;
+    }
+    if (!selectedStoreId) {
+      setMessage({ type: "error", text: "打刻する店舗を選択してください。" });
       return;
     }
     if (employees.length === 0) {
@@ -273,9 +316,9 @@ export function FaceClock() {
 
       try {
         if (action === "clock_in") {
-          await runClockIn(identified, matchedEmployee.store_id);
+          await runClockIn(identified, matchedEmployee);
         } else {
-          await runClockOut(identified, matchedEmployee.store_id);
+          await runClockOut(identified, matchedEmployee);
         }
       } catch (e) {
         if (!(e instanceof Error)) throw e;
@@ -317,16 +360,38 @@ export function FaceClock() {
     }
   };
 
-  const canStamp = cameraReady && modelsReady && !processing;
+  const canStamp = cameraReady && modelsReady && !processing && !!selectedStoreId;
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4 pb-8 sm:p-6">
       <header className="text-center">
         <h1 className="text-2xl font-bold text-slate-900">勤怠打刻</h1>
         <p className="mt-1 text-sm text-slate-600">
-          顔認証（一致率{FACE_MATCH_MIN_RATE}%以上）で出勤・退勤を記録します
+          店舗を選び、顔認証（一致率{FACE_MATCH_MIN_RATE}%以上）で出勤・退勤を記録します
         </p>
       </header>
+
+      <Card>
+        <label className="mb-1 block text-sm font-medium text-slate-700">打刻店舗</label>
+        <select
+          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          value={selectedStoreId}
+          onChange={(e) => {
+            setSelectedStoreId(e.target.value);
+            setMessage(null);
+            setFaceAuthFailed(false);
+            setShowQrModal(false);
+          }}
+          disabled={processing}
+        >
+          <option value="">店舗を選択してください</option>
+          {stores.map((store) => (
+            <option key={store.id} value={store.id}>
+              {store.name}
+            </option>
+          ))}
+        </select>
+      </Card>
 
       <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
         <button

@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { LineGroup, Store } from "@/types/database";
 import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
 import { StoreQrPanel } from "@/components/admin/StoreQrPanel";
+import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
+import type { Company } from "@/types/database";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +18,7 @@ type Props = {
   addFriendUrl: string | null;
   webhookUrl: string;
   appBaseUrl: string;
+  companies?: Pick<Company, "id" | "name">[];
 };
 
 type StoreEditDraft = {
@@ -38,12 +41,23 @@ function storeToDraft(store: Store): StoreEditDraft {
   };
 }
 
-export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl, appBaseUrl }: Props) {
+export function StoreManager({
+  initialStores,
+  initialGroups,
+  addFriendUrl,
+  webhookUrl,
+  appBaseUrl,
+  companies = [],
+}: Props) {
+  const { companyId, isSuperAdmin } = useAdminCompany();
   const [stores, setStores] = useState(initialStores);
   const [groups] = useState(initialGroups);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [newStoreCompanyId, setNewStoreCompanyId] = useState(
+    companyId ?? companies[0]?.id ?? ""
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<StoreEditDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,7 +83,13 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
+    const targetCompanyId = isSuperAdmin ? newStoreCompanyId : companyId;
+    if (!targetCompanyId) {
+      setMessage("会社が特定できません");
+      return;
+    }
     const { error } = await supabase.from("stores").insert({
+      company_id: targetCompanyId,
       name,
       address: address || null,
       phone: phone || null,
@@ -95,6 +115,7 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
 
     setSaving(true);
     setMessage(null);
+    const store = stores.find((item) => item.id === storeId);
 
     const { error } = await supabase
       .from("stores")
@@ -113,6 +134,14 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     if (error) {
       setMessage(error.message);
       return;
+    }
+
+    if (editDraft.line_group_id && store) {
+      await supabase
+        .from("line_groups")
+        .update({ company_id: store.company_id })
+        .eq("group_id", editDraft.line_group_id)
+        .is("company_id", null);
     }
 
     setMessage("店舗情報を更新しました");
@@ -141,6 +170,23 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
       <Card>
         <h3 className="font-semibold">新規店舗</h3>
         <form onSubmit={handleAdd} className="mt-4 grid gap-3 sm:grid-cols-2">
+          {isSuperAdmin && companies.length > 0 && (
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm text-slate-600">所属会社</label>
+              <select
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                value={newStoreCompanyId}
+                onChange={(e) => setNewStoreCompanyId(e.target.value)}
+                required
+              >
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-sm text-slate-600">店舗名</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required />

@@ -19,7 +19,7 @@ async function findStoreByToken(supabase: ReturnType<typeof createServiceClient>
   const tokenHash = hashQrToken(extractQrTokenFromScan(token) ?? token);
   const { data, error } = await supabase
     .from("stores")
-    .select("id, name, is_active, qr_token_hash")
+    .select("id, name, is_active, qr_token_hash, company_id")
     .eq("qr_token_hash", tokenHash)
     .maybeSingle();
 

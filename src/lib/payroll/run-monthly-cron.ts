@@ -31,12 +31,29 @@ export async function executeMonthlyPayrollCron(): Promise<MonthlyPayrollCronRes
   );
 
   const { year, month } = getCurrentMonthInJst();
-  const result = await runMonthlyPayroll(supabase, year, month);
+  const { data: companies, error: companiesError } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("is_active", true);
+
+  if (companiesError) {
+    throw new Error(companiesError.message);
+  }
+
+  let processed = 0;
+  const errors: string[] = [];
+
+  for (const company of companies ?? []) {
+    const result = await runMonthlyPayroll(supabase, year, month, null, company.id);
+    processed += result.processed;
+    errors.push(...result.errors);
+  }
 
   return {
     success: true,
     year,
     month,
-    ...result,
+    processed,
+    errors,
   };
 }

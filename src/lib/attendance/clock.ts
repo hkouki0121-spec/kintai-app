@@ -5,6 +5,7 @@ export type StampAction = "clock_in" | "clock_out";
 export type ClockInParams = {
   employeeId: string;
   storeId: string;
+  companyId: string;
   clockIn: string;
   isQrClock?: boolean;
 };
@@ -78,7 +79,7 @@ async function closeRemainingOpenRecords(
 /** 出勤: 未退勤がなければ INSERT のみ。既にあれば ALREADY_CLOCKED_IN */
 export async function clockIn(
   supabase: SupabaseClient,
-  { employeeId, storeId, clockIn: clockInAt, isQrClock = false }: ClockInParams
+  { employeeId, storeId, companyId, clockIn: clockInAt, isQrClock = false }: ClockInParams
 ): Promise<void> {
   const openId = await findAnyOpenRecordId(supabase, employeeId);
   if (openId) {
@@ -88,6 +89,7 @@ export async function clockIn(
   const { error: insertError } = await supabase.from("attendance_records").insert({
     employee_id: employeeId,
     store_id: storeId,
+    company_id: companyId,
     clock_in: clockInAt,
     is_qr_clock: isQrClock,
   });

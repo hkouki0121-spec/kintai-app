@@ -7,18 +7,22 @@ export async function runMonthlyPayroll(
   supabase: SupabaseClient,
   year: number,
   month: number,
-  storeId?: string | null
+  storeId?: string | null,
+  companyId?: string | null
 ): Promise<{ processed: number; errors: string[] }> {
   const monthStart = startOfMonth(new Date(year, month - 1, 1)).toISOString();
   const monthEnd = endOfMonth(new Date(year, month - 1, 1)).toISOString();
 
   let employeeQuery = supabase
     .from("employees")
-    .select("id, hourly_rate")
+    .select("id, hourly_rate, company_id")
     .eq("is_active", true);
 
   if (!isAllStores(storeId)) {
     employeeQuery = employeeQuery.eq("store_id", storeId!);
+  }
+  if (companyId) {
+    employeeQuery = employeeQuery.eq("company_id", companyId);
   }
 
   const { data: employees, error: empError } = await employeeQuery;
@@ -52,6 +56,7 @@ export async function runMonthlyPayroll(
     const { error: upsertError } = await supabase.from("monthly_payroll").upsert(
       {
         employee_id: result.employeeId,
+        company_id: emp.company_id,
         year: result.year,
         month: result.month,
         attendance_days: result.attendanceDays,
