@@ -2,10 +2,10 @@
 export const NIGHT_RATE_MULTIPLIER = 1.25;
 
 /** 顔認証の最低一致率（%） */
-export const FACE_MATCH_MIN_RATE = 75;
+export const FACE_MATCH_MIN_RATE = 70;
 
-/** 顔認証の最大ユークリッド距離（75%一致に相当） */
-export const FACE_MATCH_MAX_DISTANCE = 0.25;
+/** 顔認証の最大ユークリッド距離（70%一致に相当） */
+export const FACE_MATCH_MAX_DISTANCE = 0.3;
 
 /** @deprecated FACE_MATCH_MAX_DISTANCE を使用 */
 export const FACE_MATCH_THRESHOLD = FACE_MATCH_MAX_DISTANCE;
