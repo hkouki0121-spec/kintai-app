@@ -7,14 +7,16 @@ import {
   FacePipelineError,
   loadFaceModels,
 } from "@/lib/face/recognition";
+import { FACE_REGISTRATION_STEPS, MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
+import type { FaceDescriptorEntry } from "@/types/database";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 
 type Props = {
   employeeName: string;
-  onSave: (descriptor: number[]) => Promise<void>;
+  onSave: (descriptors: FaceDescriptorEntry[]) => Promise<void>;
   onClose?: () => void;
-  hasFace: boolean;
+  registeredCount: number;
 };
 
 function isCameraPermissionError(err: unknown): boolean {
@@ -28,16 +30,21 @@ function isCameraPermissionError(err: unknown): boolean {
   );
 }
 
-export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) {
+export function FaceRegister({ employeeName, onSave, onClose, registeredCount }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraReadyRef = useRef(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [hint, setHint] = useState("顔をカメラに向けてください");
+  const [stepIndex, setStepIndex] = useState(0);
+  const [captured, setCaptured] = useState<FaceDescriptorEntry[]>([]);
+  const [hint, setHint] = useState(FACE_REGISTRATION_STEPS[0].hint);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(
     null
   );
+
+  const currentStep = FACE_REGISTRATION_STEPS[stepIndex];
+  const progress = captured.length;
 
   const startCamera = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -52,13 +59,17 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
     await videoRef.current.play();
     cameraReadyRef.current = true;
     setCameraReady(true);
-    setHint("顔をカメラに向けてください");
-  }, []);
+    setHint(currentStep.hint);
+  }, [currentStep.hint]);
 
   const loadModels = useCallback(async () => {
     await loadFaceModels();
     setModelsReady(true);
   }, []);
+
+  useEffect(() => {
+    setHint(currentStep.hint);
+  }, [currentStep.hint]);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +111,7 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
     };
   }, [startCamera, loadModels]);
 
-  const handleRegister = async () => {
+  const handleCapture = async () => {
     if (!videoRef.current) return;
     setLoading(true);
     setMessage(null);
@@ -125,15 +136,15 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
       const scan = await captureFaceForRegistration(videoRef.current);
 
       if (scan.status === "no_face") {
-        setHint("顔をカメラに向けてください");
+        setHint(currentStep.hint);
         setMessage({
           type: "error",
-          text: "顔を検出できませんでした。明るい場所で正面を向けてください。",
+          text: "もう一度正面を向いて撮影してください",
         });
         return;
       }
       if (scan.status === "multiple_faces") {
-        setHint("顔をカメラに向けてください");
+        setHint(currentStep.hint);
         setMessage({
           type: "error",
           text: "複数の顔が検出されました。お一人でカメラの前に立ってください。",
@@ -141,11 +152,34 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
         return;
       }
 
-      await onSave(descriptorToArray(scan.descriptor));
-      setHint("登録完了");
-      setMessage({ type: "success", text: `${employeeName} さんの顔を登録しました` });
+      const entry: FaceDescriptorEntry = {
+        pose: currentStep.pose,
+        brightness: currentStep.brightness,
+        descriptor: descriptorToArray(scan.descriptor),
+      };
+
+      const nextCaptured = [...captured, entry];
+      setCaptured(nextCaptured);
+
+      if (nextCaptured.length >= MAX_FACE_DESCRIPTORS) {
+        await onSave(nextCaptured);
+        setHint("登録完了");
+        setMessage({
+          type: "success",
+          text: `${employeeName} さんの顔を${MAX_FACE_DESCRIPTORS}枚登録しました`,
+        });
+        return;
+      }
+
+      const nextIndex = stepIndex + 1;
+      setStepIndex(nextIndex);
+      setHint(FACE_REGISTRATION_STEPS[nextIndex].hint);
+      setMessage({
+        type: "success",
+        text: `${nextCaptured.length}/${MAX_FACE_DESCRIPTORS} 枚登録しました`,
+      });
     } catch (err) {
-      setHint("顔をカメラに向けてください");
+      setHint(currentStep.hint);
       if (err instanceof FacePipelineError) {
         setMessage({ type: "error", text: err.message });
       } else if (err instanceof Error && err.message.includes("Supabase")) {
@@ -165,10 +199,27 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
     }
   };
 
-  const canRegister = cameraReady && modelsReady && !loading;
+  const canCapture = cameraReady && modelsReady && !loading;
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="rounded-xl bg-slate-50 px-4 py-3">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium text-slate-700">{currentStep.label}</span>
+          <span className="text-slate-500">{progress}/{MAX_FACE_DESCRIPTORS}</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="h-full rounded-full bg-blue-600 transition-all"
+            style={{ width: `${(progress / MAX_FACE_DESCRIPTORS) * 100}%` }}
+          />
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          正面・左右・明るさ違いの写真を最大{MAX_FACE_DESCRIPTORS}枚登録します。
+          {registeredCount > 0 ? ` 現在 ${registeredCount} 枚登録済み（再登録で上書き）。` : ""}
+        </p>
+      </div>
+
       <div className="relative overflow-hidden rounded-2xl bg-slate-900">
         <video
           ref={videoRef}
@@ -189,17 +240,11 @@ export function FaceRegister({ employeeName, onSave, onClose, hasFace }: Props) 
         )}
       </div>
 
-      <p className="text-xs text-slate-500">
-        {hasFace
-          ? "顔登録済みです。再登録すると上書きされます。"
-          : "顔未登録です。打刻には登録が必要です。"}
-      </p>
-
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button onClick={handleRegister} disabled={!canRegister} fullWidth>
-          {loading ? "登録中…" : "顔を登録"}
+        <Button onClick={handleCapture} disabled={!canCapture} fullWidth>
+          {loading ? "撮影中…" : "この角度で撮影"}
         </Button>
         {onClose && (
           <Button variant="secondary" onClick={onClose} disabled={loading} fullWidth>

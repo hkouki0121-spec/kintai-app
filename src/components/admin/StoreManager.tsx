@@ -17,7 +17,17 @@ type Props = {
 };
 
 type StoreEditableFields = Partial<
-  Pick<Store, "name" | "address" | "phone" | "manager_name" | "line_group_id" | "line_notify_enabled">
+  Pick<
+    Store,
+    | "name"
+    | "address"
+    | "phone"
+    | "manager_name"
+    | "line_group_id"
+    | "line_notify_enabled"
+    | "latitude"
+    | "longitude"
+  >
 >;
 
 export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl }: Props) {
@@ -75,6 +85,29 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
   const handleToggleActive = async (store: Store) => {
     await supabase.from("stores").update({ is_active: !store.is_active }).eq("id", store.id);
     await refreshStores();
+  };
+
+  const handleGeocode = async (store: Store) => {
+    if (!store.address?.trim()) {
+      setMessage("住所を入力してから座標を取得してください");
+      return;
+    }
+    setMessage(null);
+    const params = new URLSearchParams({ address: store.address.trim() });
+    const response = await fetch(`/api/geo/geocode?${params.toString()}`);
+    const payload = (await response.json()) as {
+      latitude?: number;
+      longitude?: number;
+      error?: string;
+    };
+    if (!response.ok || payload.latitude == null || payload.longitude == null) {
+      setMessage(payload.error ?? "住所から座標を取得できませんでした");
+      return;
+    }
+    await handleUpdate(store.id, {
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+    });
   };
 
   const selectedGroupLabel = (groupId: string | null) => {
@@ -151,6 +184,11 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                   </p>
                 )}
                 {store.address && <p className="text-sm text-slate-500">{store.address}</p>}
+                {store.latitude != null && store.longitude != null && (
+                  <p className="text-sm text-slate-500">
+                    座標: {store.latitude.toFixed(6)}, {store.longitude.toFixed(6)}
+                  </p>
+                )}
                 {store.phone && <p className="text-sm text-slate-500">TEL: {store.phone}</p>}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -238,6 +276,42 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                       handleUpdate(store.id, { address: e.target.value || null })
                     }
                   />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-600">緯度</label>
+                  <Input
+                    type="number"
+                    step="any"
+                    defaultValue={store.latitude ?? ""}
+                    placeholder="例: 35.681236"
+                    onBlur={(e) =>
+                      handleUpdate(store.id, {
+                        latitude: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-600">経度</label>
+                  <Input
+                    type="number"
+                    step="any"
+                    defaultValue={store.longitude ?? ""}
+                    placeholder="例: 139.767125"
+                    onBlur={(e) =>
+                      handleUpdate(store.id, {
+                        longitude: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Button type="button" variant="secondary" onClick={() => handleGeocode(store)}>
+                    住所から座標を取得
+                  </Button>
+                  <p className="mt-1 text-xs text-slate-500">
+                    打刻は店舗から50m以内のみ可能です。座標または住所を設定してください。
+                  </p>
                 </div>
               </div>
             )}

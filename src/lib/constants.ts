@@ -1,8 +1,17 @@
 /** 22時以降の時給倍率 */
 export const NIGHT_RATE_MULTIPLIER = 1.25;
 
-/** 顔認証の一致しきい値（ユークリッド距離、小さいほど一致） */
-export const FACE_MATCH_THRESHOLD = 0.55;
+/** 顔認証の最低一致率（%） */
+export const FACE_MATCH_MIN_RATE = 95;
+
+/** 顔認証の最大ユークリッド距離（95%一致に相当） */
+export const FACE_MATCH_MAX_DISTANCE = 0.05;
+
+/** @deprecated FACE_MATCH_MAX_DISTANCE を使用 */
+export const FACE_MATCH_THRESHOLD = FACE_MATCH_MAX_DISTANCE;
+
+/** GPS打刻の許容半径（メートル） */
+export const GEOFENCE_RADIUS_METERS = 50;
 
 /** 日本タイムゾーン */
 export const TIMEZONE = "Asia/Tokyo";

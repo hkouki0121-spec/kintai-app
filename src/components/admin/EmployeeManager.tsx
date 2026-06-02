@@ -9,7 +9,13 @@ import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
 import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
+import {
+  countFaceDescriptors,
+  isFaceRegistrationComplete,
+} from "@/lib/face/descriptors";
+import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
 import { formatYen } from "@/lib/format";
+import type { FaceDescriptorEntry } from "@/types/database";
 
 type DeleteTarget = {
   employee: EmployeeWithStore;
@@ -134,10 +140,10 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
     await refresh();
   };
 
-  const handleFaceSave = async (id: string, descriptor: number[]) => {
+  const handleFaceSave = async (id: string, descriptors: FaceDescriptorEntry[]) => {
     const { error } = await supabase
       .from("employees")
-      .update({ face_descriptor: descriptor })
+      .update({ face_descriptor: descriptors })
       .eq("id", id);
     if (error) {
       setMessage(error.message);
@@ -145,7 +151,7 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
     }
     await refresh();
     setFaceRegisterTarget(null);
-    setMessage("顔を登録しました");
+    setMessage(`顔を${descriptors.length}枚登録しました`);
   };
 
   return (
@@ -237,8 +243,14 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
                   <span className="text-slate-400">（22時以降 ×1.25）</span>
                 </p>
                 <p className="mt-1 text-sm">
-                  {emp.face_descriptor ? (
-                    <span className="text-emerald-700">顔登録済み</span>
+                  {isFaceRegistrationComplete(emp.face_descriptor) ? (
+                    <span className="text-emerald-700">
+                      顔登録済み（{MAX_FACE_DESCRIPTORS}/{MAX_FACE_DESCRIPTORS}枚）
+                    </span>
+                  ) : countFaceDescriptors(emp.face_descriptor) > 0 ? (
+                    <span className="text-amber-700">
+                      顔登録途中（{countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚）
+                    </span>
                   ) : (
                     <span className="text-amber-700">顔未登録</span>
                   )}
@@ -292,7 +304,7 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
           <FaceRegisterModal
             employeeId={faceRegisterTarget.id}
             employeeName={faceRegisterTarget.name}
-            hasFace={!!faceRegisterTarget.face_descriptor}
+            faceDescriptor={faceRegisterTarget.face_descriptor}
             onSave={handleFaceSave}
             onClose={() => setFaceRegisterTarget(null)}
           />

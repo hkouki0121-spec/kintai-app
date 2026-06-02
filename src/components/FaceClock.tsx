@@ -3,19 +3,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyLineAttendance } from "@/lib/attendance/notify-line";
+import { isFaceRegistrationComplete } from "@/lib/face/descriptors";
+import { verifyStoreGeofence } from "@/lib/geo/store-location";
 import { createKioskClient, getSupabaseAuthRole } from "@/lib/supabase/kiosk-client";
-import type { IdentifiedEmployee } from "@/lib/face/recognition";
+import type { MatchResult } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 
 type Mode = "clock_in" | "clock_out";
 
+type StoreRow = {
+  id: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
 type EmployeeRow = {
   id: string;
   name: string;
   store_id: string;
-  face_descriptor: number[] | null;
+  face_descriptor: unknown;
+  stores: StoreRow | null;
 };
 
 function isCameraPermissionError(err: unknown): boolean {
@@ -37,6 +47,7 @@ export function FaceClock() {
   const [modelsReady, setModelsReady] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [overlayHint, setOverlayHint] = useState("顔をカメラに向けてください");
+  const [matchRate, setMatchRate] = useState<number | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(
     null
   );
@@ -73,10 +84,10 @@ export function FaceClock() {
     const loadEmployees = async () => {
       const { data } = await supabase
         .from("employees")
-        .select("id, name, store_id, face_descriptor")
+        .select("id, name, store_id, face_descriptor, stores(id, address, latitude, longitude)")
         .eq("is_active", true);
-      const rows = ((data as EmployeeRow[]) ?? []).filter(
-        (e) => e.face_descriptor && e.face_descriptor.length > 0
+      const rows = ((data as unknown as EmployeeRow[]) ?? []).filter((e) =>
+        isFaceRegistrationComplete(e.face_descriptor)
       );
       if (!cancelled) setEmployees(rows);
     };
@@ -122,11 +133,11 @@ export function FaceClock() {
 
   useEffect(() => {
     setMessage(null);
+    setMatchRate(null);
     setOverlayHint("顔をカメラに向けてください");
   }, [mode]);
 
-  /** 顔認証後に出勤 INSERT のみ実行 */
-  const runClockIn = async (identified: IdentifiedEmployee, storeId: string) => {
+  const runClockIn = async (identified: MatchResult, storeId: string) => {
     const now = new Date().toISOString();
     await clockIn(supabase, {
       employeeId: identified.employeeId,
@@ -140,11 +151,13 @@ export function FaceClock() {
       employeeName: identified.name,
       timestamp: now,
     });
-    setMessage({ type: "success", text: `${identified.name} さん 出勤しました` });
+    setMessage({
+      type: "success",
+      text: `${identified.name} さん 出勤しました（一致率 ${identified.matchRate}%）`,
+    });
   };
 
-  /** 顔認証後に退勤 UPDATE のみ実行（INSERT しない） */
-  const runClockOut = async (identified: IdentifiedEmployee, storeId: string) => {
+  const runClockOut = async (identified: MatchResult, storeId: string) => {
     const now = new Date().toISOString();
     await clockOut(supabase, {
       employeeId: identified.employeeId,
@@ -157,7 +170,10 @@ export function FaceClock() {
       employeeName: identified.name,
       timestamp: now,
     });
-    setMessage({ type: "success", text: `${identified.name} さん 退勤しました` });
+    setMessage({
+      type: "success",
+      text: `${identified.name} さん 退勤しました（一致率 ${identified.matchRate}%）`,
+    });
   };
 
   const handleClockIn = () => handleStamp("clock_in");
@@ -180,13 +196,14 @@ export function FaceClock() {
     if (employees.length === 0) {
       setMessage({
         type: "error",
-        text: "顔登録済みの従業員がいません。管理者に顔登録を依頼してください。",
+        text: "顔登録（10枚）が完了した従業員がいません。管理者に顔登録を依頼してください。",
       });
       return;
     }
 
     setProcessing(true);
     setMessage(null);
+    setMatchRate(null);
     setOverlayHint("認証中...");
 
     try {
@@ -196,7 +213,7 @@ export function FaceClock() {
         setOverlayHint("顔をカメラに向けてください");
         setMessage({
           type: "error",
-          text: "顔を検出できません。明るい場所で正面を向けてください。",
+          text: "もう一度正面を向いて撮影してください",
         });
         return;
       }
@@ -210,21 +227,38 @@ export function FaceClock() {
         return;
       }
 
+      const bestMatch = faceApiRef.current.findBestEmployeeMatch(scan.descriptor, employees);
+      if (bestMatch) {
+        setMatchRate(bestMatch.matchRate);
+      }
+
       const identified = faceApiRef.current.identifyEmployee(scan.descriptor, employees);
 
       if (!identified) {
         setOverlayHint("顔をカメラに向けてください");
-        setMessage({ type: "error", text: "登録済みの従業員と一致しません" });
+        setMessage({
+          type: "error",
+          text: bestMatch
+            ? `もう一度正面を向いて撮影してください（一致率 ${bestMatch.matchRate}% / 必要 95%以上）`
+            : "もう一度正面を向いて撮影してください",
+        });
         return;
       }
 
       const matchedEmployee = employees.find((e) => e.id === identified.employeeId);
-      if (!matchedEmployee) {
-        setMessage({ type: "error", text: "登録済みの従業員と一致しません" });
+      if (!matchedEmployee?.stores) {
+        setMessage({ type: "error", text: "店舗情報が取得できません。管理者に連絡してください。" });
         return;
       }
 
-      setOverlayHint("認証成功");
+      setOverlayHint(`認証成功（一致率 ${identified.matchRate}%）`);
+
+      const geofence = await verifyStoreGeofence(matchedEmployee.stores);
+      if (!geofence.ok) {
+        setOverlayHint("顔をカメラに向けてください");
+        setMessage({ type: "error", text: geofence.message });
+        return;
+      }
 
       const jwtRole = await getSupabaseAuthRole(supabase);
       if (process.env.NODE_ENV === "development") {
@@ -282,7 +316,7 @@ export function FaceClock() {
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4 pb-8 sm:p-6">
       <header className="text-center">
         <h1 className="text-2xl font-bold text-slate-900">勤怠打刻</h1>
-        <p className="mt-1 text-sm text-slate-600">顔認証で出勤・退勤を記録します</p>
+        <p className="mt-1 text-sm text-slate-600">顔認証（一致率95%以上）とGPSで出勤・退勤を記録します</p>
       </header>
 
       <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
@@ -325,6 +359,11 @@ export function FaceClock() {
           {cameraReady && (
             <>
               <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/40" />
+              {matchRate != null && (
+                <div className="absolute left-4 top-4 rounded-lg bg-black/60 px-3 py-1.5 text-sm font-semibold text-white">
+                  一致率 {matchRate}%
+                </div>
+              )}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-12 text-center">
                 <p className="text-base font-semibold text-white">
                   {processing ? "認証中..." : !modelsReady ? "モデルを読み込み中…" : overlayHint}
@@ -359,9 +398,9 @@ export function FaceClock() {
       )}
 
       <p className="text-center text-xs leading-relaxed text-slate-500">
-        お一人で正面を向けてください。顔認証に成功した場合のみ打刻されます。
+        お一人で正面を向けてください。一致率95%以上かつ店舗から50m以内でのみ打刻されます。
         <br />
-        22時以降の勤務は時給1.25倍で計算されます。
+        位置情報とカメラの利用許可が必要です。
       </p>
     </div>
   );

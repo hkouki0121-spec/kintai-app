@@ -1,5 +1,6 @@
 import * as faceapi from "@vladmandic/face-api";
-import { FACE_MATCH_THRESHOLD } from "@/lib/constants";
+import { FACE_MATCH_MAX_DISTANCE, FACE_MATCH_MIN_RATE } from "@/lib/constants";
+import { parseFaceDescriptors } from "@/lib/face/descriptors";
 
 const MODEL_BASE =
   "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/model";
@@ -134,36 +135,59 @@ export function arrayToDescriptor(arr: number[]): Float32Array {
 export type EmployeeFaceRecord = {
   id: string;
   name: string;
-  face_descriptor: number[] | null;
+  face_descriptor: unknown;
 };
 
-export type IdentifiedEmployee = {
+export type MatchResult = {
   employeeId: string;
   name: string;
+  distance: number;
+  matchRate: number;
 };
 
-/** 登録済み従業員と照合（スコアは返さない） */
-export function identifyEmployee(
+/** ユークリッド距離を一致率（%）に変換 */
+export function distanceToMatchRate(distance: number): number {
+  return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
+}
+
+export function isMatchRateAccepted(distance: number): boolean {
+  return distanceToMatchRate(distance) >= FACE_MATCH_MIN_RATE && distance <= FACE_MATCH_MAX_DISTANCE;
+}
+
+/** 最も近い登録顔を検索（閾値なし） */
+export function findBestEmployeeMatch(
   descriptor: Float32Array,
   employees: EmployeeFaceRecord[]
-): IdentifiedEmployee | null {
-  let bestId: string | null = null;
-  let bestName: string | null = null;
-  let bestDistance = Infinity;
+): MatchResult | null {
+  let best: MatchResult | null = null;
 
   for (const emp of employees) {
-    if (!emp.face_descriptor || emp.face_descriptor.length === 0) continue;
-    const stored = arrayToDescriptor(emp.face_descriptor);
-    const distance = faceapi.euclideanDistance(descriptor, stored);
-    if (distance < FACE_MATCH_THRESHOLD && distance < bestDistance) {
-      bestDistance = distance;
-      bestId = emp.id;
-      bestName = emp.name;
+    const entries = parseFaceDescriptors(emp.face_descriptor);
+    for (const entry of entries) {
+      const stored = arrayToDescriptor(entry.descriptor);
+      const distance = faceapi.euclideanDistance(descriptor, stored);
+      if (!best || distance < best.distance) {
+        best = {
+          employeeId: emp.id,
+          name: emp.name,
+          distance,
+          matchRate: distanceToMatchRate(distance),
+        };
+      }
     }
   }
 
-  if (!bestId || !bestName) return null;
-  return { employeeId: bestId, name: bestName };
+  return best;
+}
+
+/** 登録済み従業員と照合（95%以上のみ成功） */
+export function identifyEmployee(
+  descriptor: Float32Array,
+  employees: EmployeeFaceRecord[]
+): MatchResult | null {
+  const best = findBestEmployeeMatch(descriptor, employees);
+  if (!best || !isMatchRateAccepted(best.distance)) return null;
+  return best;
 }
 
 /** @deprecated captureFaceForRegistration を使用 */

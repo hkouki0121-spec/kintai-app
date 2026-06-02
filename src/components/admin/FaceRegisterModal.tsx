@@ -1,22 +1,26 @@
 "use client";
 
 import { FaceRegister } from "@/components/admin/FaceRegister";
+import { countFaceDescriptors } from "@/lib/face/descriptors";
+import type { FaceDescriptorEntry } from "@/types/database";
 
 type Props = {
   employeeId: string;
   employeeName: string;
-  hasFace: boolean;
-  onSave: (employeeId: string, descriptor: number[]) => Promise<void>;
+  faceDescriptor: unknown;
+  onSave: (employeeId: string, descriptors: FaceDescriptorEntry[]) => Promise<void>;
   onClose: () => void;
 };
 
 export function FaceRegisterModal({
   employeeId,
   employeeName,
-  hasFace,
+  faceDescriptor,
   onSave,
   onClose,
 }: Props) {
+  const registeredCount = countFaceDescriptors(faceDescriptor);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
@@ -28,13 +32,15 @@ export function FaceRegisterModal({
         <h3 id="face-register-title" className="text-lg font-bold text-slate-900">
           顔登録 — {employeeName}
         </h3>
-        <p className="mt-1 text-sm text-slate-600">カメラで顔を撮影し、特徴量を登録します</p>
+        <p className="mt-1 text-sm text-slate-600">
+          正面・左右・明るさ違いの写真を最大10枚登録します（レベル3）
+        </p>
         <div className="mt-4">
           <FaceRegister
             employeeName={employeeName}
-            hasFace={hasFace}
+            registeredCount={registeredCount}
             onClose={onClose}
-            onSave={(descriptor) => onSave(employeeId, descriptor)}
+            onSave={(descriptors) => onSave(employeeId, descriptors)}
           />
         </div>
       </div>

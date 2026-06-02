@@ -10,6 +10,8 @@ export type Store = {
   id: string;
   name: string;
   address: string | null;
+  latitude: number | null;
+  longitude: number | null;
   phone: string | null;
   manager_name: string | null;
   line_user_id: string | null;
@@ -19,13 +21,22 @@ export type Store = {
   created_at: string;
 };
 
+export type FacePose = "front" | "left" | "right";
+export type FaceBrightness = "normal" | "bright" | "dark";
+
+export type FaceDescriptorEntry = {
+  pose: FacePose;
+  brightness: FaceBrightness;
+  descriptor: number[];
+};
+
 export type Employee = {
   id: string;
   name: string;
   employee_code: string;
   store_id: string;
   hourly_rate: number;
-  face_descriptor: number[] | null;
+  face_descriptor: FaceDescriptorEntry[] | number[] | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
