@@ -31,26 +31,7 @@ export default function AdminLoginPage() {
       return;
     }
 
-    const { data: member, error: memberError } = await supabase
-      .from("company_members")
-      .select("id, role, company_id")
-      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
-      .maybeSingle();
-
-    if (memberError) {
-      console.error("[login] company_members read failed", memberError);
-    }
-
-    if (!member) {
-      setError(
-        "ログインは成功しましたが、このアカウントは会社に紐付けられていません。会社登録画面から再度登録するか、管理者にお問い合わせください。"
-      );
-      setLoading(false);
-      return;
-    }
-
-    console.log("[login] company member ok", member);
-    window.location.href = "/admin";
+    window.location.href = "/admin/dashboard";
   };
 
   return (

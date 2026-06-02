@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export type CompanyRole = "super_admin" | "company_admin";
 
@@ -11,6 +12,37 @@ export type CompanyContext = {
   isSuperAdmin: boolean;
 };
 
+function isCompanyRole(value: string): value is CompanyRole {
+  return value === "super_admin" || value === "company_admin";
+}
+
+/** 認証済みユーザーの company_members を service role で取得（user.id に限定） */
+async function fetchCompanyMember(userId: string) {
+  const service = createServiceClient();
+  return service
+    .from("company_members")
+    .select("role, company_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+}
+
+/** 会社名を service role で取得（member.company_id に限定） */
+async function fetchCompanyName(companyId: string) {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("companies")
+    .select("name")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[company-context] companies read failed", error);
+    return null;
+  }
+
+  return data?.name ?? null;
+}
+
 export async function getCompanyContext(
   supabase: SupabaseClient
 ): Promise<CompanyContext | null> {
@@ -18,36 +50,42 @@ export async function getCompanyContext(
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return null;
-
-  const { data: member, error: memberError } = await supabase
-    .from("company_members")
-    .select("role, company_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (memberError || !member) {
-    if (memberError) {
-      console.error("[company-context] company_members read failed", memberError);
-    }
+  if (!user) {
     return null;
   }
 
-  const role = member.role as CompanyRole;
+  const { data: member, error: memberError } = await fetchCompanyMember(user.id);
+
+  if (memberError) {
+    console.error("[company-context] company_members read failed", {
+      userId: user.id,
+      email: user.email,
+      error: memberError,
+    });
+    return null;
+  }
+
+  if (!member) {
+    console.error("[company-context] no company_members row", {
+      userId: user.id,
+      email: user.email,
+    });
+    return null;
+  }
+
+  if (!isCompanyRole(member.role)) {
+    console.error("[company-context] invalid role", {
+      userId: user.id,
+      role: member.role,
+    });
+    return null;
+  }
+
+  const role = member.role;
   let companyName: string | null = null;
 
   if (member.company_id) {
-    const { data: company, error: companyError } = await supabase
-      .from("companies")
-      .select("name")
-      .eq("id", member.company_id)
-      .maybeSingle();
-
-    if (companyError) {
-      console.error("[company-context] companies read failed", companyError);
-    } else {
-      companyName = company?.name ?? null;
-    }
+    companyName = await fetchCompanyName(member.company_id);
   }
 
   return {

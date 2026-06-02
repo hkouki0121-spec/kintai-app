@@ -11,7 +11,7 @@ export default async function CompaniesPage() {
     redirect("/admin/no-access");
   }
   if (!context.isSuperAdmin) {
-    redirect("/admin");
+    redirect("/admin/dashboard");
   }
 
   return (

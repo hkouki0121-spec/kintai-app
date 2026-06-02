@@ -33,7 +33,7 @@ export function DashboardContent({
     const params = new URLSearchParams(searchParams.toString());
     if (value === ALL_STORES_VALUE) params.delete("store");
     else params.set("store", value);
-    router.push(`/admin?${params.toString()}`);
+    router.push(`/admin/dashboard?${params.toString()}`);
   };
 
   return (

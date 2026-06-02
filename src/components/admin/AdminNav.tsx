@@ -7,7 +7,7 @@ import type { CompanyContext } from "@/lib/auth/company-context";
 import { Button } from "@/components/ui/Button";
 
 const baseLinks = [
-  { href: "/admin", label: "ダッシュボード" },
+  { href: "/admin/dashboard", label: "ダッシュボード" },
   { href: "/admin/stores", label: "店舗管理" },
   { href: "/admin/employees", label: "従業員" },
   { href: "/admin/attendance", label: "勤怠履歴" },
