@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +13,6 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -33,8 +31,26 @@ export default function AdminLoginPage() {
       return;
     }
 
-    router.push("/admin");
-    router.refresh();
+    const { data: member, error: memberError } = await supabase
+      .from("company_members")
+      .select("id, role, company_id")
+      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
+      .maybeSingle();
+
+    if (memberError) {
+      console.error("[login] company_members read failed", memberError);
+    }
+
+    if (!member) {
+      setError(
+        "ログインは成功しましたが、このアカウントは会社に紐付けられていません。会社登録画面から再度登録するか、管理者にお問い合わせください。"
+      );
+      setLoading(false);
+      return;
+    }
+
+    console.log("[login] company member ok", member);
+    window.location.href = "/admin";
   };
 
   return (

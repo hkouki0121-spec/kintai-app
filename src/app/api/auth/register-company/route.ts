@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import type { AuthError, PostgrestError } from "@supabase/supabase-js";
+import { findAuthUserByEmail } from "@/lib/auth/find-user-by-email";
+import { insertCompanyMember } from "@/lib/auth/register-company-member";
+import { verifyUserPassword } from "@/lib/auth/verify-user-password";
 import { createServiceClient } from "@/lib/supabase/service";
 
 type RegisterCompanyRequest = {
@@ -47,6 +50,14 @@ function buildErrorResponse(
   return NextResponse.json(body, { status });
 }
 
+function isAlreadyRegistered(message: string | undefined): boolean {
+  if (!message) return false;
+  return (
+    message.includes("already registered") ||
+    message.includes("already been registered")
+  );
+}
+
 function isValidRequest(body: unknown): body is RegisterCompanyRequest {
   if (!body || typeof body !== "object") return false;
   const value = body as Record<string, unknown>;
@@ -58,6 +69,58 @@ function isValidRequest(body: unknown): body is RegisterCompanyRequest {
     typeof value.password === "string" &&
     value.password.length >= 8
   );
+}
+
+async function createCompanyWithMember(
+  supabase: ReturnType<typeof createServiceClient>,
+  params: {
+    userId: string;
+    companyName: string;
+    email: string;
+  }
+) {
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .insert({ name: params.companyName })
+    .select("id, name")
+    .single();
+
+  if (companyError || !company) {
+    console.error("[register-company] company insert failed", companyError);
+    return {
+      ok: false as const,
+      step: "company" as const,
+      summary: companyError?.message ?? "会社作成に失敗しました",
+      source: companyError,
+    };
+  }
+
+  console.log("[register-company] company ok", {
+    companyId: company.id,
+    name: company.name,
+    email: params.email,
+  });
+
+  const { member, error: memberError } = await insertCompanyMember(supabase, {
+    userId: params.userId,
+    companyId: company.id,
+  });
+
+  if (memberError || !member) {
+    await supabase.from("companies").delete().eq("id", company.id);
+    return {
+      ok: false as const,
+      step: "member" as const,
+      summary: memberError?.message ?? "会社への紐付けに失敗しました",
+      source: memberError,
+    };
+  }
+
+  return {
+    ok: true as const,
+    company,
+    member,
+  };
 }
 
 /** 新規会社と会社管理者アカウントを作成 */
@@ -103,6 +166,9 @@ export async function POST(request: Request) {
 
   console.log("[register-company] start", { email, companyName });
 
+  let userId: string;
+  let reusedExistingUser = false;
+
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
     email,
     password: body.password,
@@ -111,54 +177,110 @@ export async function POST(request: Request) {
   });
 
   if (authError || !authData.user) {
-    const summary =
-      authError?.message.includes("already registered") ||
-      authError?.message.includes("already been registered")
-        ? "このメールアドレスは既に登録されています"
-        : authError?.message ?? "アカウント作成に失敗しました";
-    return buildErrorResponse("auth", summary, authError, 400);
+    if (!isAlreadyRegistered(authError?.message)) {
+      return buildErrorResponse(
+        "auth",
+        authError?.message ?? "アカウント作成に失敗しました",
+        authError,
+        400
+      );
+    }
+
+    console.log("[register-company] email exists, trying existing-user flow", {
+      email,
+    });
+
+    const existingUser = await findAuthUserByEmail(supabase, email);
+    if (!existingUser) {
+      return buildErrorResponse(
+        "auth",
+        "このメールアドレスは既に登録されています",
+        authError,
+        400
+      );
+    }
+
+    const passwordCheck = await verifyUserPassword(email, body.password);
+    if (!passwordCheck.ok) {
+      return buildErrorResponse(
+        "auth",
+        "このメールアドレスは既に登録されています。ログイン用パスワードが一致しません。",
+        authError,
+        400
+      );
+    }
+
+    if (passwordCheck.userId !== existingUser.id) {
+      return buildErrorResponse(
+        "auth",
+        "アカウント確認に失敗しました",
+        authError,
+        400
+      );
+    }
+
+    const { data: existingMember, error: existingMemberError } = await supabase
+      .from("company_members")
+      .select("id, company_id, role")
+      .eq("user_id", existingUser.id)
+      .maybeSingle();
+
+    if (existingMemberError) {
+      return buildErrorResponse(
+        "member",
+        existingMemberError.message,
+        existingMemberError,
+        500
+      );
+    }
+
+    if (existingMember) {
+      return buildErrorResponse(
+        "auth",
+        "このメールアドレスは既に会社に紐付けられています。ログインしてください。",
+        authError,
+        400
+      );
+    }
+
+    userId = existingUser.id;
+    reusedExistingUser = true;
+    console.log("[register-company] existing auth user without member", {
+      userId,
+      email,
+    });
+  } else {
+    userId = authData.user.id;
+    console.log("[register-company] auth ok", { userId, email });
   }
 
-  console.log("[register-company] auth ok", { userId: authData.user.id });
-
-  const { data: company, error: companyError } = await supabase
-    .from("companies")
-    .insert({ name: companyName })
-    .select("id, name")
-    .single();
-
-  if (companyError || !company) {
-    await supabase.auth.admin.deleteUser(authData.user.id);
-    return buildErrorResponse(
-      "company",
-      companyError?.message ?? "会社作成に失敗しました",
-      companyError,
-      500
-    );
-  }
-
-  console.log("[register-company] company ok", { companyId: company.id });
-
-  const { error: memberError } = await supabase.from("company_members").insert({
-    user_id: authData.user.id,
-    company_id: company.id,
-    role: "company_admin",
+  const result = await createCompanyWithMember(supabase, {
+    userId,
+    companyName,
+    email,
   });
 
-  if (memberError) {
-    await supabase.from("companies").delete().eq("id", company.id);
-    await supabase.auth.admin.deleteUser(authData.user.id);
-    return buildErrorResponse("member", memberError.message, memberError, 500);
+  if (!result.ok) {
+    if (!reusedExistingUser) {
+      await supabase.auth.admin.deleteUser(userId);
+    }
+    return buildErrorResponse(result.step, result.summary, result.source, 500);
   }
 
   console.log("[register-company] success", {
-    userId: authData.user.id,
-    companyId: company.id,
+    userId,
+    companyId: result.company.id,
+    memberId: result.member.id,
+    role: result.member.role,
+    reusedExistingUser,
   });
 
   return NextResponse.json({
     ok: true,
-    companyId: company.id,
-    companyName: company.name,
+    companyId: result.company.id,
+    companyName: result.company.name,
+    memberId: result.member.id,
+    role: result.member.role,
+    reusedExistingUser,
   });
 }
