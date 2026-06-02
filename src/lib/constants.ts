@@ -10,9 +10,6 @@ export const FACE_MATCH_MAX_DISTANCE = 0.25;
 /** @deprecated FACE_MATCH_MAX_DISTANCE を使用 */
 export const FACE_MATCH_THRESHOLD = FACE_MATCH_MAX_DISTANCE;
 
-/** GPS打刻の許容半径（メートル） */
-export const GEOFENCE_RADIUS_METERS = 50;
-
 /** 日本タイムゾーン */
 export const TIMEZONE = "Asia/Tokyo";
 

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyLineAttendance } from "@/lib/attendance/notify-line";
 import { hasRegisteredFace } from "@/lib/face/descriptors";
-import { verifyStoreGeofence } from "@/lib/geo/store-location";
 import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
 import { createKioskClient, getSupabaseAuthRole } from "@/lib/supabase/kiosk-client";
 import type { MatchResult } from "@/lib/face/recognition";
@@ -14,19 +13,11 @@ import { Card } from "@/components/ui/Card";
 
 type Mode = "clock_in" | "clock_out";
 
-type StoreRow = {
-  id: string;
-  address: string | null;
-  latitude: number | null;
-  longitude: number | null;
-};
-
 type EmployeeRow = {
   id: string;
   name: string;
   store_id: string;
   face_descriptor: unknown;
-  stores: StoreRow | null;
 };
 
 function isCameraPermissionError(err: unknown): boolean {
@@ -85,9 +76,9 @@ export function FaceClock() {
     const loadEmployees = async () => {
       const { data } = await supabase
         .from("employees")
-        .select("id, name, store_id, face_descriptor, stores(id, address, latitude, longitude)")
+        .select("id, name, store_id, face_descriptor")
         .eq("is_active", true);
-      const rows = ((data as unknown as EmployeeRow[]) ?? []).filter((e) =>
+      const rows = ((data as EmployeeRow[]) ?? []).filter((e) =>
         hasRegisteredFace(e.face_descriptor)
       );
       if (!cancelled) setEmployees(rows);
@@ -247,19 +238,12 @@ export function FaceClock() {
       }
 
       const matchedEmployee = employees.find((e) => e.id === identified.employeeId);
-      if (!matchedEmployee?.stores) {
-        setMessage({ type: "error", text: "店舗情報が取得できません。管理者に連絡してください。" });
+      if (!matchedEmployee) {
+        setMessage({ type: "error", text: "登録済みの従業員と一致しません" });
         return;
       }
 
       setOverlayHint(`認証成功（一致率 ${identified.matchRate}%）`);
-
-      const geofence = await verifyStoreGeofence(matchedEmployee.stores);
-      if (!geofence.ok) {
-        setOverlayHint("顔をカメラに向けてください");
-        setMessage({ type: "error", text: geofence.message });
-        return;
-      }
 
       const jwtRole = await getSupabaseAuthRole(supabase);
       if (process.env.NODE_ENV === "development") {
@@ -318,7 +302,7 @@ export function FaceClock() {
       <header className="text-center">
         <h1 className="text-2xl font-bold text-slate-900">勤怠打刻</h1>
         <p className="mt-1 text-sm text-slate-600">
-          顔認証（一致率{FACE_MATCH_MIN_RATE}%以上）とGPS（店舗から50m以内）で出勤・退勤を記録します
+          顔認証（一致率{FACE_MATCH_MIN_RATE}%以上）で出勤・退勤を記録します
         </p>
       </header>
 
@@ -401,9 +385,9 @@ export function FaceClock() {
       )}
 
       <p className="text-center text-xs leading-relaxed text-slate-500">
-        お一人で正面を向けてください。一致率{FACE_MATCH_MIN_RATE}%以上かつ店舗から50m以内でのみ打刻されます。
+        お一人で正面を向けてください。一致率{FACE_MATCH_MIN_RATE}%以上で打刻されます。
         <br />
-        位置情報とカメラの利用許可が必要です。
+        カメラの利用許可が必要です。
       </p>
     </div>
   );

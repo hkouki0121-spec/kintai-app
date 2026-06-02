@@ -21,14 +21,9 @@ type StoreEditDraft = {
   address: string;
   phone: string;
   manager_name: string;
-  latitude: string;
-  longitude: string;
   line_group_id: string;
   line_notify_enabled: boolean;
 };
-
-const GEOCODE_FAILURE_MESSAGE =
-  "住所から座標を取得できませんでした。手動で入力してください";
 
 function storeToDraft(store: Store): StoreEditDraft {
   return {
@@ -36,8 +31,6 @@ function storeToDraft(store: Store): StoreEditDraft {
     address: store.address ?? "",
     phone: store.phone ?? "",
     manager_name: store.manager_name ?? "",
-    latitude: store.latitude != null ? String(store.latitude) : "",
-    longitude: store.longitude != null ? String(store.longitude) : "",
     line_group_id: store.line_group_id ?? "",
     line_notify_enabled: store.line_notify_enabled,
   };
@@ -51,7 +44,6 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
   const [phone, setPhone] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<StoreEditDraft | null>(null);
-  const [geocoding, setGeocoding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
@@ -96,58 +88,11 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     await refreshStores();
   };
 
-  const handleGeocodeFromAddress = async () => {
-    if (!editDraft) return;
-    const addressValue = editDraft.address.trim();
-    if (!addressValue) {
-      setMessage("住所を入力してから座標を取得してください");
-      return;
-    }
-
-    setGeocoding(true);
-    setMessage(null);
-
-    try {
-      const params = new URLSearchParams({ address: addressValue });
-      const response = await fetch(`/api/geo/geocode?${params.toString()}`);
-      const payload = (await response.json()) as {
-        latitude?: number;
-        longitude?: number;
-        approximate?: boolean;
-        matchedQuery?: string;
-        displayName?: string;
-      };
-
-      if (!response.ok || payload.latitude == null || payload.longitude == null) {
-        setMessage(GEOCODE_FAILURE_MESSAGE);
-        return;
-      }
-
-      setEditDraft({
-        ...editDraft,
-        latitude: String(payload.latitude),
-        longitude: String(payload.longitude),
-      });
-      setMessage(
-        payload.approximate
-          ? `座標を取得しました（${payload.matchedQuery ?? "近似位置"}）。番地レベルではないため、必要なら手動で調整してから保存してください。`
-          : "座標を取得しました。保存ボタンで登録してください。"
-      );
-    } catch {
-      setMessage(GEOCODE_FAILURE_MESSAGE);
-    } finally {
-      setGeocoding(false);
-    }
-  };
-
   const handleSaveEdit = async (storeId: string) => {
     if (!editDraft) return;
 
     setSaving(true);
     setMessage(null);
-
-    const latitude = editDraft.latitude.trim();
-    const longitude = editDraft.longitude.trim();
 
     const { error } = await supabase
       .from("stores")
@@ -156,8 +101,6 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
         address: editDraft.address.trim() || null,
         phone: editDraft.phone.trim() || null,
         manager_name: editDraft.manager_name.trim() || null,
-        latitude: latitude ? Number(latitude) : null,
-        longitude: longitude ? Number(longitude) : null,
         line_group_id: editDraft.line_group_id || null,
         line_notify_enabled: editDraft.line_notify_enabled,
       })
@@ -179,10 +122,7 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     return groups.find((group) => group.group_id === groupId)?.group_name ?? groupId;
   };
 
-  const isSuccessMessage = (text: string) =>
-    text.includes("追加") ||
-    text.includes("更新") ||
-    text.includes("座標を取得しました");
+  const isSuccessMessage = (text: string) => text.includes("追加") || text.includes("更新");
 
   return (
     <div className="space-y-6">
@@ -246,11 +186,6 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                   </p>
                 )}
                 {store.address && <p className="text-sm text-slate-500">{store.address}</p>}
-                {store.latitude != null && store.longitude != null && (
-                  <p className="text-sm text-slate-500">
-                    座標: {store.latitude.toFixed(6)}, {store.longitude.toFixed(6)}
-                  </p>
-                )}
                 {store.phone && <p className="text-sm text-slate-500">TEL: {store.phone}</p>}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -335,47 +270,11 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                     onChange={(e) => setEditDraft({ ...editDraft, address: e.target.value })}
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm text-slate-600">緯度 (latitude)</label>
-                  <Input
-                    type="number"
-                    step="any"
-                    value={editDraft.latitude}
-                    placeholder="例: 35.681236"
-                    onChange={(e) => setEditDraft({ ...editDraft, latitude: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm text-slate-600">経度 (longitude)</label>
-                  <Input
-                    type="number"
-                    step="any"
-                    value={editDraft.longitude}
-                    placeholder="例: 139.767125"
-                    onChange={(e) => setEditDraft({ ...editDraft, longitude: e.target.value })}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2 sm:col-span-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleGeocodeFromAddress}
-                    disabled={geocoding || saving}
-                  >
-                    {geocoding ? "取得中…" : "住所から座標を取得"}
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => handleSaveEdit(store.id)}
-                    disabled={geocoding || saving}
-                  >
+                <div className="sm:col-span-2">
+                  <Button type="button" onClick={() => handleSaveEdit(store.id)} disabled={saving}>
                     {saving ? "保存中…" : "保存"}
                   </Button>
                 </div>
-                <p className="text-xs text-slate-500 sm:col-span-2">
-                  「住所から座標を取得」で OpenStreetMap (Nominatim) から緯度・経度を自動入力します。
-                  取得後は「保存」ボタンで stores テーブルに反映してください。打刻は店舗から50m以内のみ可能です。
-                </p>
               </div>
             )}
           </Card>

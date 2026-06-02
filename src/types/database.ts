@@ -10,8 +10,6 @@ export type Store = {
   id: string;
   name: string;
   address: string | null;
-  latitude: number | null;
-  longitude: number | null;
   phone: string | null;
   manager_name: string | null;
   line_user_id: string | null;

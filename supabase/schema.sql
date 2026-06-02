@@ -6,8 +6,6 @@ CREATE TABLE IF NOT EXISTS stores (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   address TEXT,
-  latitude DOUBLE PRECISION,
-  longitude DOUBLE PRECISION,
   phone TEXT,
   manager_name TEXT,
   line_user_id TEXT,
