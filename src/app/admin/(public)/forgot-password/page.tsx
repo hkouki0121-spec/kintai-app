@@ -6,17 +6,20 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
+import { FORGOT_PASSWORD_SUCCESS_MESSAGE } from "@/lib/auth/forgot-password-messages";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setMessage(null);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
     try {
       const res = await fetch("/api/auth/forgot-password", {
@@ -24,17 +27,35 @@ export default function ForgotPasswordPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),
       });
-      const data = (await res.json()) as { message?: string };
-      setMessage(
-        data.message ??
-          "登録されているメールアドレスの場合、パスワード再設定用のメールを送信しました。メールをご確認ください。"
-      );
+
+      const data = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        code?: string | null;
+        sent?: boolean;
+      };
+
+      console.log("[forgot-password] API response", {
+        status: res.status,
+        ok: data.ok,
+        sent: data.sent,
+        error: data.error ?? null,
+        code: data.code ?? null,
+      });
+
+      if (!res.ok || data.ok === false) {
+        setErrorMessage(data.error ?? "メール送信に失敗しました。");
+        setSubmitted(false);
+        return;
+      }
+
+      setSuccessMessage(data.message ?? FORGOT_PASSWORD_SUCCESS_MESSAGE);
       setSubmitted(true);
-    } catch {
-      setMessage(
-        "登録されているメールアドレスの場合、パスワード再設定用のメールを送信しました。メールをご確認ください。"
-      );
-      setSubmitted(true);
+    } catch (fetchError) {
+      console.error("[forgot-password] fetch error", fetchError);
+      setErrorMessage("通信エラーが発生しました。時間をおいて再度お試しください。");
+      setSubmitted(false);
     } finally {
       setLoading(false);
     }
@@ -48,11 +69,14 @@ export default function ForgotPasswordPage() {
           登録済みのメールアドレスを入力してください。再設定用のリンクをお送りします。
         </p>
 
-        {submitted ? (
+        {submitted && successMessage ? (
           <div className="mt-6 space-y-4">
-            <Alert type="success">{message}</Alert>
+            <Alert type="success">{successMessage}</Alert>
             <p className="text-sm text-slate-600">
               メールが届かない場合は、迷惑メールフォルダをご確認ください。
+              Supabase 無料枠では時間あたりの送信数に制限があります。本番運用では
+              Supabase Dashboard → Authentication → SMTP Settings でカスタム SMTP
+              の設定を推奨します。
             </p>
             <Link
               href="/admin/login"
@@ -75,6 +99,7 @@ export default function ForgotPasswordPage() {
                 autoComplete="email"
               />
             </div>
+            {errorMessage && <Alert type="error">{errorMessage}</Alert>}
             <Button type="submit" fullWidth disabled={loading}>
               {loading ? "送信中…" : "再設定メールを送信"}
             </Button>
