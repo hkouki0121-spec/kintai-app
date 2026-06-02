@@ -31,7 +31,9 @@ export async function updateSession(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === "/admin/login";
   const isPublicAdminPage =
     request.nextUrl.pathname === "/admin/register" ||
-    request.nextUrl.pathname === "/admin/no-access";
+    request.nextUrl.pathname === "/admin/no-access" ||
+    request.nextUrl.pathname === "/admin/forgot-password" ||
+    request.nextUrl.pathname === "/admin/reset-password";
 
   if (isAdminRoute && !isLoginPage && !isPublicAdminPage && !user) {
     const url = request.nextUrl.clone();

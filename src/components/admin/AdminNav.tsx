@@ -12,6 +12,7 @@ const baseLinks = [
   { href: "/admin/employees", label: "従業員" },
   { href: "/admin/attendance", label: "勤怠履歴" },
   { href: "/admin/payroll", label: "給与" },
+  { href: "/admin/account", label: "アカウント" },
 ];
 
 type Props = {

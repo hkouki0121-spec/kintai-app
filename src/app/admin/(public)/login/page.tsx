@@ -63,6 +63,11 @@ export default function AdminLoginPage() {
               required
               autoComplete="current-password"
             />
+            <p className="mt-2 text-right text-sm">
+              <Link href="/admin/forgot-password" className="text-blue-600 hover:underline">
+                パスワードを忘れた方
+              </Link>
+            </p>
           </div>
           {error && <Alert type="error">{error}</Alert>}
           <Button type="submit" fullWidth disabled={loading}>
