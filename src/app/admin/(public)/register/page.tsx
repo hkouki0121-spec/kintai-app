@@ -8,6 +8,15 @@ import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 
+type RegisterErrorDetails = {
+  error?: string;
+  step?: string | null;
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
 export default function RegisterCompanyPage() {
   const [companyName, setCompanyName] = useState("");
   const [adminName, setAdminName] = useState("");
@@ -15,6 +24,9 @@ export default function RegisterCompanyPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<RegisterErrorDetails | null>(
+    null
+  );
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -22,6 +34,7 @@ export default function RegisterCompanyPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setErrorDetails(null);
     setSuccess(null);
 
     if (password !== confirmPassword) {
@@ -47,16 +60,40 @@ export default function RegisterCompanyPage() {
         }),
       });
 
-      const data = (await res.json()) as { error?: string; companyName?: string };
+      const data = (await res.json()) as RegisterErrorDetails & {
+        companyName?: string;
+        ok?: boolean;
+      };
+
       if (!res.ok) {
+        console.error("[register-company] API error", {
+          status: res.status,
+          ...data,
+        });
         setError(data.error ?? "登録に失敗しました");
+        setErrorDetails({
+          step: data.step ?? null,
+          message: data.message ?? null,
+          code: data.code ?? null,
+          details: data.details ?? null,
+          hint: data.hint ?? null,
+        });
         return;
       }
 
-      setSuccess(`${data.companyName ?? companyName} のアカウントを作成しました。ログインしてください。`);
+      setSuccess(
+        `${data.companyName ?? companyName} のアカウントを作成しました。ログインしてください。`
+      );
       setTimeout(() => router.push("/admin/login"), 1500);
-    } catch {
-      setError("登録に失敗しました");
+    } catch (caught) {
+      console.error("[register-company] network error", caught);
+      setError("登録に失敗しました（通信エラー）");
+      setErrorDetails({
+        message: caught instanceof Error ? caught.message : String(caught),
+        code: "NETWORK_ERROR",
+        details: null,
+        hint: null,
+      });
     } finally {
       setLoading(false);
     }
@@ -121,6 +158,33 @@ export default function RegisterCompanyPage() {
           </div>
 
           {error && <Alert type="error">{error}</Alert>}
+          {errorDetails && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+              <p className="font-semibold">エラー詳細</p>
+              {errorDetails.step && (
+                <p className="mt-2">
+                  <span className="font-medium">step:</span> {errorDetails.step}
+                </p>
+              )}
+              <p className="mt-1 break-all">
+                <span className="font-medium">error.message:</span>{" "}
+                {errorDetails.message ?? "—"}
+              </p>
+              <p className="mt-1 break-all">
+                <span className="font-medium">error.code:</span>{" "}
+                {errorDetails.code ?? "—"}
+              </p>
+              <p className="mt-1 break-all">
+                <span className="font-medium">error.details:</span>{" "}
+                {errorDetails.details ?? "—"}
+              </p>
+              {errorDetails.hint && (
+                <p className="mt-1 break-all">
+                  <span className="font-medium">error.hint:</span> {errorDetails.hint}
+                </p>
+              )}
+            </div>
+          )}
           {success && <Alert type="success">{success}</Alert>}
 
           <Button type="submit" fullWidth disabled={loading}>

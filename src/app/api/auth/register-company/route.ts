@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { AuthError, PostgrestError } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase/service";
 
 type RegisterCompanyRequest = {
@@ -7,6 +8,44 @@ type RegisterCompanyRequest = {
   password: string;
   adminName?: string;
 };
+
+type RegisterErrorStep = "auth" | "company" | "member" | "validation";
+
+type RegisterErrorBody = {
+  error: string;
+  step: RegisterErrorStep;
+  message: string | null;
+  code: string | null;
+  details: string | null;
+  hint: string | null;
+};
+
+function buildErrorResponse(
+  step: RegisterErrorStep,
+  summary: string,
+  source: AuthError | PostgrestError | null | undefined,
+  status: number
+) {
+  const body: RegisterErrorBody = {
+    error: summary,
+    step,
+    message: source?.message ?? null,
+    code:
+      source && "code" in source && source.code != null
+        ? String(source.code)
+        : null,
+    details:
+      source && "details" in source && source.details
+        ? String(source.details)
+        : null,
+    hint:
+      source && "hint" in source && source.hint ? String(source.hint) : null,
+  };
+
+  console.error("[register-company]", step, body);
+
+  return NextResponse.json(body, { status });
+}
 
 function isValidRequest(body: unknown): body is RegisterCompanyRequest {
   if (!body || typeof body !== "object") return false;
@@ -27,20 +66,42 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
-  }
-
-  if (!isValidRequest(body)) {
-    return NextResponse.json(
-      { error: "会社名・メール・パスワード（8文字以上）が必要です" },
-      { status: 400 }
+    return buildErrorResponse(
+      "validation",
+      "リクエスト形式が不正です",
+      { message: "invalid_json", name: "ValidationError", status: 400 } as AuthError,
+      400
     );
   }
 
-  const supabase = createServiceClient();
+  if (!isValidRequest(body)) {
+    return buildErrorResponse(
+      "validation",
+      "会社名・メール・パスワード（8文字以上）が必要です",
+      null,
+      400
+    );
+  }
+
+  let supabase;
+  try {
+    supabase = createServiceClient();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Supabase 設定エラー";
+    return buildErrorResponse(
+      "validation",
+      message,
+      { message, name: "ConfigError", status: 500 } as AuthError,
+      500
+    );
+  }
+
   const companyName = body.companyName.trim();
   const email = body.email.trim().toLowerCase();
   const adminName = body.adminName?.trim() || companyName;
+
+  console.log("[register-company] start", { email, companyName });
 
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
     email,
@@ -50,13 +111,15 @@ export async function POST(request: Request) {
   });
 
   if (authError || !authData.user) {
-    const message =
+    const summary =
       authError?.message.includes("already registered") ||
       authError?.message.includes("already been registered")
         ? "このメールアドレスは既に登録されています"
         : authError?.message ?? "アカウント作成に失敗しました";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return buildErrorResponse("auth", summary, authError, 400);
   }
+
+  console.log("[register-company] auth ok", { userId: authData.user.id });
 
   const { data: company, error: companyError } = await supabase
     .from("companies")
@@ -66,11 +129,15 @@ export async function POST(request: Request) {
 
   if (companyError || !company) {
     await supabase.auth.admin.deleteUser(authData.user.id);
-    return NextResponse.json(
-      { error: companyError?.message ?? "会社作成に失敗しました" },
-      { status: 500 }
+    return buildErrorResponse(
+      "company",
+      companyError?.message ?? "会社作成に失敗しました",
+      companyError,
+      500
     );
   }
+
+  console.log("[register-company] company ok", { companyId: company.id });
 
   const { error: memberError } = await supabase.from("company_members").insert({
     user_id: authData.user.id,
@@ -81,8 +148,13 @@ export async function POST(request: Request) {
   if (memberError) {
     await supabase.from("companies").delete().eq("id", company.id);
     await supabase.auth.admin.deleteUser(authData.user.id);
-    return NextResponse.json({ error: memberError.message }, { status: 500 });
+    return buildErrorResponse("member", memberError.message, memberError, 500);
   }
+
+  console.log("[register-company] success", {
+    userId: authData.user.id,
+    companyId: company.id,
+  });
 
   return NextResponse.json({
     ok: true,

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "db:line-groups": "node scripts/apply-line-groups-migration.mjs",
-    "db:migrate:line-groups": "node scripts/apply-migration-via-management-api.mjs"
+    "db:migrate:line-groups": "node scripts/apply-migration-via-management-api.mjs 20250604_line_groups.sql",
+    "db:migrate:multi-company": "node scripts/apply-migration-via-management-api.mjs 20250608_multi_company.sql"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

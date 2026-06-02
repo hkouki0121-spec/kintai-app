@@ -2,7 +2,8 @@
 /**
  * Supabase Management API 経由で migration SQL を実行する。
  * 使い方:
- *   SUPABASE_ACCESS_TOKEN=sbp_xxx node scripts/apply-migration-via-management-api.mjs
+ *   SUPABASE_ACCESS_TOKEN=sbp_xxx npm run db:migrate:multi-company
+ *   SUPABASE_ACCESS_TOKEN=sbp_xxx node scripts/apply-migration-via-management-api.mjs 20250608_multi_company.sql
  */
 import fs from "fs";
 import path from "path";
@@ -34,14 +35,21 @@ async function main() {
     process.exit(1);
   }
 
+  const migrationFile =
+    process.argv[2]?.trim() || "20250604_line_groups.sql";
   const sqlPath = path.join(
     __dirname,
     "..",
     "supabase",
     "migrations",
-    "20250604_line_groups.sql"
+    migrationFile
   );
+  if (!fs.existsSync(sqlPath)) {
+    console.error(`Migration file not found: ${sqlPath}`);
+    process.exit(1);
+  }
   const query = fs.readFileSync(sqlPath, "utf8");
+  console.log(`Applying ${migrationFile} ...`);
 
   const response = await fetch(
     `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,

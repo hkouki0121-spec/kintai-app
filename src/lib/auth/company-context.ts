@@ -11,20 +11,6 @@ export type CompanyContext = {
   isSuperAdmin: boolean;
 };
 
-type MemberRow = {
-  role: CompanyRole;
-  company_id: string | null;
-  companies: { name: string } | { name: string }[] | null;
-};
-
-function resolveCompanyName(
-  companies: MemberRow["companies"]
-): string | null {
-  if (!companies) return null;
-  if (Array.isArray(companies)) return companies[0]?.name ?? null;
-  return companies.name;
-}
-
 export async function getCompanyContext(
   supabase: SupabaseClient
 ): Promise<CompanyContext | null> {
@@ -34,22 +20,42 @@ export async function getCompanyContext(
 
   if (!user) return null;
 
-  const { data: member, error } = await supabase
+  const { data: member, error: memberError } = await supabase
     .from("company_members")
-    .select("role, company_id, companies(name)")
+    .select("role, company_id")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error || !member) return null;
+  if (memberError || !member) {
+    if (memberError) {
+      console.error("[company-context] company_members read failed", memberError);
+    }
+    return null;
+  }
 
   const role = member.role as CompanyRole;
+  let companyName: string | null = null;
+
+  if (member.company_id) {
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("name")
+      .eq("id", member.company_id)
+      .maybeSingle();
+
+    if (companyError) {
+      console.error("[company-context] companies read failed", companyError);
+    } else {
+      companyName = company?.name ?? null;
+    }
+  }
 
   return {
     userId: user.id,
     email: user.email,
     role,
     companyId: member.company_id,
-    companyName: resolveCompanyName(member.companies as MemberRow["companies"]),
+    companyName,
     isSuperAdmin: role === "super_admin",
   };
 }
