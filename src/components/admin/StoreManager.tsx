@@ -113,6 +113,9 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
       const payload = (await response.json()) as {
         latitude?: number;
         longitude?: number;
+        approximate?: boolean;
+        matchedQuery?: string;
+        displayName?: string;
       };
 
       if (!response.ok || payload.latitude == null || payload.longitude == null) {
@@ -125,7 +128,11 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
         latitude: String(payload.latitude),
         longitude: String(payload.longitude),
       });
-      setMessage("座標を取得しました。保存ボタンで登録してください。");
+      setMessage(
+        payload.approximate
+          ? `座標を取得しました（${payload.matchedQuery ?? "近似位置"}）。番地レベルではないため、必要なら手動で調整してから保存してください。`
+          : "座標を取得しました。保存ボタンで登録してください。"
+      );
     } catch {
       setMessage(GEOCODE_FAILURE_MESSAGE);
     } finally {
