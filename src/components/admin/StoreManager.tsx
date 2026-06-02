@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { LineGroup, Store } from "@/types/database";
 import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
+import { StoreDeleteConfirmModal } from "@/components/admin/StoreDeleteConfirmModal";
 import { StoreQrPanel } from "@/components/admin/StoreQrPanel";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import type { Company } from "@/types/database";
@@ -11,6 +12,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
+import { Toast } from "@/components/ui/Toast";
+import { STORE_DELETE_BLOCKED_MESSAGE } from "@/lib/stores/delete-store";
 
 type Props = {
   initialStores: Store[];
@@ -49,7 +52,8 @@ export function StoreManager({
   appBaseUrl,
   companies = [],
 }: Props) {
-  const { companyId, isSuperAdmin } = useAdminCompany();
+  const { companyId, isSuperAdmin, role } = useAdminCompany();
+  const canDeleteStore = !isSuperAdmin && role === "company_admin";
   const [stores, setStores] = useState(initialStores);
   const [groups] = useState(initialGroups);
   const [name, setName] = useState("");
@@ -60,6 +64,9 @@ export function StoreManager({
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<StoreEditDraft | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Store | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
@@ -110,6 +117,40 @@ export function StoreManager({
     await refreshStores();
   };
 
+  const handleDeleteStore = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch(`/api/admin/stores/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as { error?: string };
+
+      if (!res.ok) {
+        setMessage(data.error ?? "店舗の削除に失敗しました");
+        setDeleteTarget(null);
+        return;
+      }
+
+      if (expandedId === deleteTarget.id) {
+        setExpandedId(null);
+        setEditDraft(null);
+      }
+
+      setDeleteTarget(null);
+      setToast("店舗を削除しました");
+      await refreshStores();
+    } catch {
+      setMessage("店舗の削除に失敗しました");
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleSaveEdit = async (storeId: string) => {
     if (!editDraft) return;
 
@@ -153,10 +194,12 @@ export function StoreManager({
     return groups.find((group) => group.group_id === groupId)?.group_name ?? groupId;
   };
 
-  const isSuccessMessage = (text: string) => text.includes("追加") || text.includes("更新");
+  const isSuccessMessage = (text: string) =>
+    text.includes("追加") || text.includes("更新");
 
   return (
     <div className="space-y-6">
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       {message && (
         <Alert type={isSuccessMessage(message) ? "success" : "error"}>{message}</Alert>
       )}
@@ -238,7 +281,7 @@ export function StoreManager({
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  variant="ghost"
+                  variant="primary"
                   onClick={() => {
                     setMessage(null);
                     setExpandedId(expandedId === store.id ? null : store.id);
@@ -249,6 +292,17 @@ export function StoreManager({
                 <Button variant="secondary" onClick={() => handleToggleActive(store)}>
                   {store.is_active ? "無効化" : "有効化"}
                 </Button>
+                {canDeleteStore && (
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      setMessage(null);
+                      setDeleteTarget(store);
+                    }}
+                  >
+                    削除
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -335,6 +389,17 @@ export function StoreManager({
           <p className="text-center text-sm text-slate-500">店舗が登録されていません</p>
         )}
       </div>
+
+      {deleteTarget && (
+        <StoreDeleteConfirmModal
+          storeName={deleteTarget.name}
+          deleting={deleting}
+          onConfirm={handleDeleteStore}
+          onClose={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
