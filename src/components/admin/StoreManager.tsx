@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { Toast } from "@/components/ui/Toast";
-import { STORE_DELETE_BLOCKED_MESSAGE } from "@/lib/stores/delete-store";
 
 type Props = {
   initialStores: Store[];
@@ -65,6 +64,7 @@ export function StoreManager({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<StoreEditDraft | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Store | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -121,31 +121,70 @@ export function StoreManager({
     if (!deleteTarget) return;
 
     setDeleting(true);
+    setDeleteError(null);
     setMessage(null);
 
-    try {
-      const res = await fetch(`/api/admin/stores/${deleteTarget.id}`, {
-        method: "DELETE",
-      });
-      const data = (await res.json()) as { error?: string };
+    const storeId = deleteTarget.id;
 
-      if (!res.ok) {
-        setMessage(data.error ?? "店舗の削除に失敗しました");
-        setDeleteTarget(null);
+    try {
+      console.log("[stores/delete] request", { storeId, storeName: deleteTarget.name });
+
+      const res = await fetch(`/api/admin/stores/${storeId}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+
+      let data: {
+        ok?: boolean;
+        deletedId?: string;
+        error?: string;
+        message?: string;
+        code?: string | null;
+        details?: string | null;
+        reasons?: string[];
+        counts?: { employees: number; attendance: number };
+      } = {};
+
+      try {
+        data = await res.json();
+      } catch (parseError) {
+        console.error("[stores/delete] invalid JSON response", {
+          status: res.status,
+          parseError,
+        });
+        setDeleteError("サーバー応答の解析に失敗しました");
         return;
       }
 
-      if (expandedId === deleteTarget.id) {
+      console.log("[stores/delete] response", {
+        status: res.status,
+        message: data.message ?? data.error ?? null,
+        code: data.code ?? null,
+        details: data.details ?? null,
+        reasons: data.reasons ?? null,
+        counts: data.counts ?? null,
+      });
+
+      if (!res.ok) {
+        setDeleteError(data.error ?? data.message ?? "店舗の削除に失敗しました");
+        return;
+      }
+
+      if (expandedId === storeId) {
         setExpandedId(null);
         setEditDraft(null);
       }
 
+      setStores((current) => current.filter((store) => store.id !== storeId));
       setDeleteTarget(null);
+      setDeleteError(null);
       setToast("店舗を削除しました");
-      await refreshStores();
-    } catch {
-      setMessage("店舗の削除に失敗しました");
-      setDeleteTarget(null);
+      void refreshStores();
+    } catch (error) {
+      console.error("[stores/delete] network error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setDeleteError("店舗の削除に失敗しました（通信エラー）");
     } finally {
       setDeleting(false);
     }
@@ -297,6 +336,7 @@ export function StoreManager({
                     variant="danger"
                     onClick={() => {
                       setMessage(null);
+                      setDeleteError(null);
                       setDeleteTarget(store);
                     }}
                   >
@@ -394,9 +434,13 @@ export function StoreManager({
         <StoreDeleteConfirmModal
           storeName={deleteTarget.name}
           deleting={deleting}
+          errorMessage={deleteError}
           onConfirm={handleDeleteStore}
           onClose={() => {
-            if (!deleting) setDeleteTarget(null);
+            if (!deleting) {
+              setDeleteTarget(null);
+              setDeleteError(null);
+            }
           }}
         />
       )}

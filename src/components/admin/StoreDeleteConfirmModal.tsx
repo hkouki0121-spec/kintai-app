@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 type Props = {
   storeName: string;
   deleting: boolean;
+  errorMessage: string | null;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -12,6 +13,7 @@ type Props = {
 export function StoreDeleteConfirmModal({
   storeName,
   deleting,
+  errorMessage,
   onConfirm,
   onClose,
 }: Props) {
@@ -32,6 +34,12 @@ export function StoreDeleteConfirmModal({
           <br />
           この操作は取り消せません。
         </p>
+
+        {errorMessage && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {errorMessage}
+          </p>
+        )}
 
         <div className="mt-6 flex flex-wrap justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={deleting}>

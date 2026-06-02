@@ -24,3 +24,32 @@ export function resolveStoreDeleteBlockReasons(input: {
   if (input.hasLineSettings) reasons.push("line_settings");
   return reasons;
 }
+
+const REASON_LABELS: Record<StoreDeleteBlockReason, string> = {
+  employees: "従業員",
+  attendance: "勤怠データ",
+  line_settings: "LINEグループ設定",
+};
+
+export function formatStoreDeleteBlockMessage(
+  reasons: StoreDeleteBlockReason[],
+  counts: { employees: number; attendance: number }
+): string {
+  const parts = reasons.map((reason) => {
+    if (reason === "employees") {
+      return `${REASON_LABELS.employees} ${counts.employees} 件`;
+    }
+    if (reason === "attendance") {
+      return `${REASON_LABELS.attendance} ${counts.attendance} 件`;
+    }
+    return REASON_LABELS.line_settings;
+  });
+
+  return `この店舗には関連データが存在するため削除できません（${parts.join("、")}）。先に従業員・勤怠データを削除し、LINE設定を解除してください。`;
+}
+
+export function describeStoreDeleteBlockReasons(
+  reasons: StoreDeleteBlockReason[]
+): string {
+  return reasons.map((reason) => REASON_LABELS[reason]).join("、");
+}
