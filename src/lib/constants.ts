@@ -12,3 +12,8 @@ export const COMPANY_NAME = "炭火焼肉 笑門来福";
 
 /** 給与計算対象とする勤務区間の最短時間（分） */
 export const MIN_WORK_MINUTES = 15;
+
+/** 1日の法定労働時間（残業計算用） */
+export const DAILY_STATUTORY_HOURS = 8;
+
+export const DAILY_STATUTORY_MINUTES = DAILY_STATUTORY_HOURS * 60;

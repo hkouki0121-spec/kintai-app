@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
 import { downloadPayrollPdf } from "@/lib/pdf/generate-payroll-pdf";
+import { downloadPayrollCsv } from "@/lib/csv/export-payroll-csv";
 import { isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import type { PayrollWithEmployee, Store } from "@/types/database";
-import { formatYen } from "@/lib/format";
+import { formatActualHours, formatYen } from "@/lib/format";
 import { HoursDisplay } from "@/components/admin/HoursDisplay";
 import { StoreSelect } from "@/components/admin/StoreSelect";
 import { Card } from "@/components/ui/Card";
@@ -23,6 +24,13 @@ type Props = {
   initialYear: number;
   initialMonth: number;
 };
+
+function getTotalHours(row: PayrollWithEmployee): number {
+  if (row.actual_total_hours != null) {
+    return Number(row.actual_total_hours);
+  }
+  return Number(row.actual_regular_hours ?? row.regular_hours) + Number(row.actual_night_hours ?? row.night_hours);
+}
 
 export function PayrollManager({
   stores,
@@ -128,6 +136,20 @@ export function PayrollManager({
     }
   };
 
+  const handleDownloadCsv = () => {
+    if (payroll.length === 0) {
+      setMessage({ type: "error", text: "給与データがありません。先に給与を計算してください。" });
+      return;
+    }
+    setMessage(null);
+    try {
+      downloadPayrollCsv(payroll, Number(year), Number(month));
+      setMessage({ type: "success", text: "給与CSVをダウンロードしました。" });
+    } catch (e) {
+      setMessage({ type: "error", text: (e as Error).message });
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -172,10 +194,19 @@ export function PayrollManager({
           >
             {pdfLoading ? "PDF作成中…" : "給与明細PDFを出力"}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleDownloadCsv}
+            disabled={payroll.length === 0}
+          >
+            給与CSVを出力
+          </Button>
         </form>
         <p className="mt-2 text-xs text-slate-500">
           「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）。
           15分未満の勤務区間は0時間、以降は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
+          残業時間は1日8時間を超えた分の合計です。月末は自動集計（Vercel Cron）も実行されます。
         </p>
       </Card>
 
@@ -192,8 +223,11 @@ export function PayrollManager({
             <tr>
               <th className="px-4 py-3 font-medium">従業員</th>
               <th className="px-4 py-3 font-medium">店舗</th>
+              <th className="px-4 py-3 font-medium">出勤日数</th>
+              <th className="px-4 py-3 font-medium">総勤務時間</th>
               <th className="min-w-[8rem] px-4 py-3 font-medium">通常勤務</th>
               <th className="min-w-[8rem] px-4 py-3 font-medium">深夜(22時〜)</th>
+              <th className="px-4 py-3 font-medium">残業時間</th>
               <th className="px-4 py-3 font-medium">通常給</th>
               <th className="px-4 py-3 font-medium">深夜給</th>
               <th className="px-4 py-3 font-medium">合計</th>
@@ -204,6 +238,8 @@ export function PayrollManager({
               <tr key={row.id}>
                 <td className="px-4 py-3 font-medium">{row.employees?.name ?? "—"}</td>
                 <td className="px-4 py-3 text-slate-600">{row.employees?.stores?.name ?? "—"}</td>
+                <td className="px-4 py-3">{row.attendance_days ?? 0}日</td>
+                <td className="px-4 py-3">{formatActualHours(getTotalHours(row))}</td>
                 <td className="px-4 py-3">
                   <HoursDisplay
                     actualHours={Number(row.actual_regular_hours ?? row.regular_hours)}
@@ -216,6 +252,7 @@ export function PayrollManager({
                     payrollHours={Number(row.night_hours)}
                   />
                 </td>
+                <td className="px-4 py-3">{formatActualHours(Number(row.overtime_hours ?? 0))}</td>
                 <td className="px-4 py-3">{formatYen(Number(row.regular_pay))}</td>
                 <td className="px-4 py-3">{formatYen(Number(row.night_pay))}</td>
                 <td className="px-4 py-3 font-semibold">{formatYen(Number(row.total_pay))}</td>

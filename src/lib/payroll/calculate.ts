@@ -1,6 +1,10 @@
 import { addMinutes, endOfMonth, startOfMonth } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
-import { NIGHT_RATE_MULTIPLIER, TIMEZONE } from "@/lib/constants";
+import {
+  DAILY_STATUTORY_MINUTES,
+  NIGHT_RATE_MULTIPLIER,
+  TIMEZONE,
+} from "@/lib/constants";
 import {
   isWorkSegmentEligible,
   roundMinutesToHalfHours,
@@ -10,6 +14,15 @@ export type WorkSegment = {
   regularMinutes: number;
   nightMinutes: number;
 };
+
+function getJstDateKey(date: Date): string {
+  return formatInTimeZone(date, TIMEZONE, "yyyy-MM-dd");
+}
+
+function isDateInMonth(dayKey: string, year: number, month: number): boolean {
+  const [y, m] = dayKey.split("-").map(Number);
+  return y === year && m === month;
+}
 
 /** 1勤務区間を通常・深夜（22時〜翌5時）に分割（分単位・JST） */
 export function splitWorkMinutes(clockIn: Date, clockOut: Date): WorkSegment {
@@ -29,14 +42,39 @@ export function splitWorkMinutes(clockIn: Date, clockOut: Date): WorkSegment {
   return { regularMinutes, nightMinutes };
 }
 
+/** 1勤務区間をJST日付ごとに分割 */
+export function splitWorkMinutesByDay(clockIn: Date, clockOut: Date): Map<string, WorkSegment> {
+  const byDay = new Map<string, WorkSegment>();
+  let cursor = new Date(clockIn);
+
+  while (cursor < clockOut) {
+    const key = getJstDateKey(cursor);
+    const jst = toZonedTime(cursor, TIMEZONE);
+    const hour = jst.getHours();
+    const isNight = hour >= 22 || hour < 5;
+    const entry = byDay.get(key) ?? { regularMinutes: 0, nightMinutes: 0 };
+    if (isNight) entry.nightMinutes += 1;
+    else entry.regularMinutes += 1;
+    byDay.set(key, entry);
+    cursor = addMinutes(cursor, 1);
+  }
+
+  return byDay;
+}
+
 export type PayrollResult = {
   employeeId: string;
   year: number;
   month: number;
+  attendanceDays: number;
   /** 実勤務（通常・時間） */
   actualRegularHours: number;
   /** 実勤務（深夜・時間） */
   actualNightHours: number;
+  /** 実勤務（合計・時間） */
+  actualTotalHours: number;
+  /** 月間残業時間（1日8時間超過分の合計） */
+  overtimeHours: number;
   /** 給与計算用（30分切り捨て後・通常） */
   regularHours: number;
   /** 給与計算用（30分切り捨て後・深夜） */
@@ -58,6 +96,8 @@ export function calculateEmployeePayroll(
 
   let regularMinutes = 0;
   let nightMinutes = 0;
+  const attendanceDayKeys = new Set<string>();
+  const dailyTotalMinutes = new Map<string, number>();
 
   for (const record of records) {
     if (!record.clock_out) continue;
@@ -75,10 +115,25 @@ export function calculateEmployeePayroll(
     }
     regularMinutes += segment.regularMinutes;
     nightMinutes += segment.nightMinutes;
+
+    for (const [dayKey, daySegment] of splitWorkMinutesByDay(effectiveIn, effectiveOut)) {
+      if (!isDateInMonth(dayKey, year, month)) continue;
+      const dayTotal = daySegment.regularMinutes + daySegment.nightMinutes;
+      if (dayTotal <= 0) continue;
+      attendanceDayKeys.add(dayKey);
+      dailyTotalMinutes.set(dayKey, (dailyTotalMinutes.get(dayKey) ?? 0) + dayTotal);
+    }
+  }
+
+  let overtimeMinutes = 0;
+  for (const dayTotal of dailyTotalMinutes.values()) {
+    overtimeMinutes += Math.max(0, dayTotal - DAILY_STATUTORY_MINUTES);
   }
 
   const actualRegularHours = minutesToHours(regularMinutes);
   const actualNightHours = minutesToHours(nightMinutes);
+  const actualTotalHours = minutesToHours(regularMinutes + nightMinutes);
+  const overtimeHours = minutesToHours(overtimeMinutes);
   const regularHours = roundMinutesToHalfHours(regularMinutes);
   const nightHours = roundMinutesToHalfHours(nightMinutes);
   const regularPay = floorYen(regularHours * hourlyRate);
@@ -89,8 +144,11 @@ export function calculateEmployeePayroll(
     employeeId,
     year,
     month,
+    attendanceDays: attendanceDayKeys.size,
     actualRegularHours,
     actualNightHours,
+    actualTotalHours,
+    overtimeHours,
     regularHours,
     nightHours,
     regularPay,
