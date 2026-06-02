@@ -71,8 +71,21 @@ export function StoreManager({
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
-  const refreshStores = async () => {
-    const { data } = await supabase.from("stores").select("*").order("name");
+  const loadStores = async () => {
+    console.log("[stores/delete] loadStores start");
+    const { data, error } = await supabase.from("stores").select("*").order("name");
+    if (error) {
+      console.error("[stores/delete] loadStores failed", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+      });
+      return;
+    }
+    console.log("[stores/delete] loadStores success", {
+      count: data?.length ?? 0,
+      ids: (data ?? []).map((store) => store.id),
+    });
     setStores((data as Store[]) ?? []);
   };
 
@@ -109,12 +122,12 @@ export function StoreManager({
     setAddress("");
     setPhone("");
     setMessage("店舗を追加しました");
-    await refreshStores();
+    await loadStores();
   };
 
   const handleToggleActive = async (store: Store) => {
     await supabase.from("stores").update({ is_active: !store.is_active }).eq("id", store.id);
-    await refreshStores();
+    await loadStores();
   };
 
   const handleDeleteStore = async () => {
@@ -127,7 +140,9 @@ export function StoreManager({
     const storeId = deleteTarget.id;
 
     try {
-      console.log("[stores/delete] request", { storeId, storeName: deleteTarget.name });
+      console.log("[stores/delete] start");
+      console.log("[stores/delete] storeId", storeId);
+      console.log("[stores/delete] request", { storeName: deleteTarget.name });
 
       const res = await fetch(`/api/admin/stores/${storeId}`, {
         method: "DELETE",
@@ -158,6 +173,7 @@ export function StoreManager({
 
       console.log("[stores/delete] response", {
         status: res.status,
+        ok: data.ok ?? null,
         message: data.message ?? data.error ?? null,
         code: data.code ?? null,
         details: data.details ?? null,
@@ -170,16 +186,17 @@ export function StoreManager({
         return;
       }
 
+      console.log("[stores/delete] deleteResult", data);
+
       if (expandedId === storeId) {
         setExpandedId(null);
         setEditDraft(null);
       }
 
-      setStores((current) => current.filter((store) => store.id !== storeId));
       setDeleteTarget(null);
       setDeleteError(null);
       setToast("店舗を削除しました");
-      void refreshStores();
+      await loadStores();
     } catch (error) {
       console.error("[stores/delete] network error", {
         message: error instanceof Error ? error.message : String(error),
@@ -225,7 +242,7 @@ export function StoreManager({
     }
 
     setMessage("店舗情報を更新しました");
-    await refreshStores();
+    await loadStores();
   };
 
   const selectedGroupLabel = (groupId: string | null) => {

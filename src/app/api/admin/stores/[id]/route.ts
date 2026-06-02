@@ -29,11 +29,19 @@ function errorResponse(
 
 /** 店舗削除（company_admin のみ・関連データがある場合は不可） */
 export async function DELETE(_request: Request, { params }: RouteParams) {
-  const { id } = await params;
+  const { id: storeId } = await params;
+
+  console.log("[stores/delete] start");
+  console.log("[stores/delete] storeId", storeId);
+
   const supabase = await createClient();
   const context = await getCompanyContext(supabase);
 
-  console.log("[stores/delete] start", { storeId: id, userId: context?.userId, role: context?.role });
+  console.log("[stores/delete] context", {
+    userId: context?.userId ?? null,
+    role: context?.role ?? null,
+    companyId: context?.companyId ?? null,
+  });
 
   if (!context) {
     return errorResponse(401, "ログインセッションが無効です。再度ログインしてください。");
@@ -41,23 +49,6 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
 
   if (context.isSuperAdmin || context.role !== "company_admin") {
     return errorResponse(403, "店舗の削除権限がありません。");
-  }
-
-  const { data: store, error: storeError } = await supabase
-    .from("stores")
-    .select("id, company_id, line_group_id, line_user_id, line_notify_enabled")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (storeError) {
-    return errorResponse(500, "店舗情報の取得に失敗しました", storeError);
-  }
-
-  if (!store) {
-    return errorResponse(
-      404,
-      "店舗が見つからないか、削除権限がありません。"
-    );
   }
 
   let service;
@@ -68,22 +59,59 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     return errorResponse(500, message, { message, code: "CONFIG" });
   }
 
+  const { data: accessibleStores, error: accessibleError } = await supabase
+    .from("stores")
+    .select("id");
+
+  if (accessibleError) {
+    return errorResponse(500, "店舗一覧の取得に失敗しました", accessibleError);
+  }
+
+  const canAccessStore = (accessibleStores ?? []).some((row) => row.id === storeId);
+  console.log("[stores/delete] accessibleStoreIds", (accessibleStores ?? []).map((row) => row.id));
+  console.log("[stores/delete] canAccessStore", canAccessStore);
+
+  if (!canAccessStore) {
+    return errorResponse(
+      403,
+      "この店舗を削除する権限がありません。"
+    );
+  }
+
+  const { data: store, error: storeError } = await service
+    .from("stores")
+    .select("id, company_id, name, line_group_id, line_user_id, line_notify_enabled")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  console.log("[stores/delete] storeBeforeDelete", { store, storeError });
+
+  if (storeError) {
+    return errorResponse(500, "店舗情報の取得に失敗しました", storeError);
+  }
+
+  if (!store) {
+    return errorResponse(404, "店舗が見つかりません。");
+  }
+
   const [{ count: employeeCount }, { count: attendanceCount }] =
     await Promise.all([
       service
         .from("employees")
         .select("*", { count: "exact", head: true })
-        .eq("store_id", id),
+        .eq("store_id", storeId),
       service
         .from("attendance_records")
         .select("*", { count: "exact", head: true })
-        .eq("store_id", id),
+        .eq("store_id", storeId),
     ]);
 
   const counts = {
     employees: employeeCount ?? 0,
     attendance: attendanceCount ?? 0,
   };
+
+  console.log("[stores/delete] relatedCounts", counts);
 
   const blockReasons = resolveStoreDeleteBlockReasons({
     employeeCount: counts.employees,
@@ -100,13 +128,44 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     );
   }
 
-  const { error: deleteError } = await service.from("stores").delete().eq("id", id);
+  console.log("[stores/delete] executing delete SQL", { storeId });
 
-  if (deleteError) {
-    return errorResponse(500, "店舗の削除に失敗しました", deleteError);
+  const result = await service
+    .from("stores")
+    .delete()
+    .eq("id", storeId)
+    .select("id, name");
+
+  console.log("[stores/delete] deleteResult", result);
+
+  if (result.error) {
+    return errorResponse(500, "店舗の削除に失敗しました", result.error);
   }
 
-  console.log("[stores/delete] success", { storeId: id, storeCompanyId: store.company_id });
+  if (!result.data || result.data.length === 0) {
+    return errorResponse(
+      500,
+      "店舗の削除に失敗しました（対象レコードが削除されませんでした）",
+      { message: "no_rows_deleted", code: "PGRST116" }
+    );
+  }
 
-  return NextResponse.json({ ok: true, deletedId: id });
+  const { data: storeAfterDelete, error: verifyError } = await service
+    .from("stores")
+    .select("id")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  console.log("[stores/delete] storeAfterDelete", { storeAfterDelete, verifyError });
+
+  console.log("[stores/delete] success", {
+    storeId,
+    deleted: result.data[0],
+  });
+
+  return NextResponse.json({
+    ok: true,
+    deletedId: storeId,
+    deletedName: result.data[0]?.name ?? store.name,
+  });
 }
