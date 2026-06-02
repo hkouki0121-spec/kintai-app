@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { EmployeeWithAttendance, Store } from "@/types/database";
+import type { EmployeeWithAttendance, EmployeeWithStore, Store } from "@/types/database";
 import { formatJstDateTime } from "@/lib/format";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { StoreSelect } from "@/components/admin/StoreSelect";
 import { AttendanceEditModal } from "@/components/admin/AttendanceEditModal";
+import { AttendanceManualCreateModal } from "@/components/admin/AttendanceManualCreateModal";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -14,16 +15,26 @@ import { Button } from "@/components/ui/Button";
 type Props = {
   records: EmployeeWithAttendance[];
   stores: Pick<Store, "id" | "name">[];
+  employees: EmployeeWithStore[];
+  correctedRecordIds: string[];
   initialStoreId: string;
 };
 
-export function AttendanceTable({ records, stores, initialStoreId }: Props) {
+export function AttendanceTable({
+  records,
+  stores,
+  employees,
+  correctedRecordIds,
+  initialStoreId,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
   const [storeId, setStoreId] = useState(searchParams.get("store") ?? initialStoreId);
   const [editingRecord, setEditingRecord] = useState<EmployeeWithAttendance | null>(null);
+  const [showManualCreate, setShowManualCreate] = useState(false);
+  const correctedSet = new Set(correctedRecordIds);
 
   const applyFilter = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -52,6 +63,9 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
           </div>
           <Button type="submit" variant="secondary">
             絞り込み
+          </Button>
+          <Button type="button" onClick={() => setShowManualCreate(true)}>
+            手動登録
           </Button>
         </form>
       </Card>
@@ -86,6 +100,11 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
                     ) : (
                       <span className="font-medium text-blue-600">勤務中</span>
                     )}
+                    {correctedSet.has(row.id) && (
+                      <span className="w-fit rounded bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+                        修正済み
+                      </span>
+                    )}
                     {row.is_qr_clock && (
                       <span className="w-fit rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
                         QR打刻
@@ -113,6 +132,17 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
           onClose={() => setEditingRecord(null)}
           onSaved={() => {
             setEditingRecord(null);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {showManualCreate && (
+        <AttendanceManualCreateModal
+          employees={employees}
+          onClose={() => setShowManualCreate(false)}
+          onSaved={() => {
+            setShowManualCreate(false);
             router.refresh();
           }}
         />

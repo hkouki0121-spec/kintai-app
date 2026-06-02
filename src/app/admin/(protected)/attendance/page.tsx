@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AttendanceTable } from "@/components/admin/AttendanceTable";
 import { fetchActiveStores, isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
-import type { EmployeeWithAttendance } from "@/types/database";
+import type { EmployeeWithAttendance, EmployeeWithStore } from "@/types/database";
 
 export default async function AttendancePage({
   searchParams,
@@ -31,18 +31,44 @@ export default async function AttendancePage({
     query = query.eq("store_id", storeId);
   }
 
-  const { data } = await query;
+  const [{ data }, { data: employeesData }] = await Promise.all([
+    query,
+    supabase
+      .from("employees")
+      .select("*, stores(id, name)")
+      .eq("is_active", true)
+      .order("name"),
+  ]);
+
+  const records = (data as EmployeeWithAttendance[]) ?? [];
+  const recordIds = records.map((row) => row.id);
+  let correctedRecordIds: string[] = [];
+
+  if (recordIds.length > 0) {
+    const { data: correctionRows } = await supabase
+      .from("attendance_corrections")
+      .select("attendance_record_id")
+      .in("attendance_record_id", recordIds);
+
+    correctedRecordIds = [
+      ...new Set((correctionRows ?? []).map((row) => row.attendance_record_id as string)),
+    ];
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">勤怠履歴</h2>
-        <p className="text-sm text-slate-600">店舗・期間で出勤・退勤の記録を確認できます</p>
+        <p className="text-sm text-slate-600">
+          店舗・期間で出勤・退勤の記録を確認できます。管理者のみ勤怠の修正・手動登録が可能です。
+        </p>
       </div>
       <Suspense fallback={<p className="text-sm text-slate-500">読み込み中…</p>}>
         <AttendanceTable
-          records={(data as EmployeeWithAttendance[]) ?? []}
+          records={records}
           stores={stores}
+          employees={(employeesData as EmployeeWithStore[]) ?? []}
+          correctedRecordIds={correctedRecordIds}
           initialStoreId={storeId}
         />
       </Suspense>

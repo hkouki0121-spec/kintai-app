@@ -76,14 +76,17 @@ export type AttendanceRecord = {
 export type AttendanceCorrection = {
   id: string;
   attendance_record_id: string;
-  corrector_user_id: string | null;
-  corrector_name: string;
+  employee_id: string | null;
+  company_id: string | null;
+  store_id: string | null;
+  before_clock_in: string | null;
+  before_clock_out: string | null;
+  after_clock_in: string | null;
+  after_clock_out: string | null;
   reason: string;
-  clock_in_before: string | null;
-  clock_in_after: string | null;
-  clock_out_before: string | null;
-  clock_out_after: string | null;
+  corrected_by: string | null;
   created_at: string;
+  corrected_by_email?: string | null;
 };
 
 export type MonthlyPayroll = {

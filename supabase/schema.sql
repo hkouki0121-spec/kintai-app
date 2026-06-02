@@ -92,22 +92,28 @@ CREATE INDEX IF NOT EXISTS idx_attendance_store ON attendance_records(store_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_company ON attendance_records(company_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_clock_in ON attendance_records(clock_in DESC);
 
--- 勤怠修正履歴
+-- 勤怠修正履歴（削除不可・参照・追加のみ）
 CREATE TABLE IF NOT EXISTS attendance_corrections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   attendance_record_id UUID NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
-  corrector_user_id UUID,
-  corrector_name TEXT NOT NULL,
+  employee_id UUID REFERENCES employees(id),
+  company_id UUID REFERENCES companies(id),
+  store_id UUID REFERENCES stores(id),
+  before_clock_in TIMESTAMPTZ,
+  before_clock_out TIMESTAMPTZ,
+  after_clock_in TIMESTAMPTZ,
+  after_clock_out TIMESTAMPTZ,
   reason TEXT NOT NULL,
-  clock_in_before TIMESTAMPTZ,
-  clock_in_after TIMESTAMPTZ,
-  clock_out_before TIMESTAMPTZ,
-  clock_out_after TIMESTAMPTZ,
+  corrected_by UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_attendance_corrections_record
   ON attendance_corrections(attendance_record_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_corrections_employee
+  ON attendance_corrections(employee_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_corrections_company
+  ON attendance_corrections(company_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_attendance_one_open_per_employee
   ON attendance_records (employee_id)
@@ -248,17 +254,22 @@ CREATE POLICY company_attendance ON attendance_records
   USING (public.auth_can_access_company(company_id))
   WITH CHECK (public.auth_can_access_company(company_id));
 
-CREATE POLICY company_attendance_corrections ON attendance_corrections
-  FOR ALL TO authenticated
+CREATE POLICY company_attendance_corrections_select ON attendance_corrections
+  FOR SELECT TO authenticated
   USING (
-    EXISTS (
+    public.auth_can_access_company(company_id)
+    OR EXISTS (
       SELECT 1 FROM attendance_records ar
       WHERE ar.id = attendance_record_id
         AND public.auth_can_access_company(ar.company_id)
     )
-  )
+  );
+
+CREATE POLICY company_attendance_corrections_insert ON attendance_corrections
+  FOR INSERT TO authenticated
   WITH CHECK (
-    EXISTS (
+    public.auth_can_access_company(company_id)
+    OR EXISTS (
       SELECT 1 FROM attendance_records ar
       WHERE ar.id = attendance_record_id
         AND public.auth_can_access_company(ar.company_id)
