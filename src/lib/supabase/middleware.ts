@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+function applySupabaseCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach(({ name, value, ...options }) => {
+    target.cookies.set(name, value, options);
+  });
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -38,13 +44,17 @@ export async function updateSession(request: NextRequest) {
   if (isAdminRoute && !isLoginPage && !isPublicAdminPage && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/admin/login";
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    applySupabaseCookies(supabaseResponse, redirectResponse);
+    return redirectResponse;
   }
 
   if (isLoginPage && user) {
     const url = request.nextUrl.clone();
     url.pathname = "/admin/dashboard";
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    applySupabaseCookies(supabaseResponse, redirectResponse);
+    return redirectResponse;
   }
 
   return supabaseResponse;
