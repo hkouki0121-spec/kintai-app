@@ -10,6 +10,7 @@ import type { MatchResult } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
+import { QrEmergencyClock } from "@/components/QrEmergencyClock";
 
 type Mode = "clock_in" | "clock_out";
 
@@ -44,6 +45,11 @@ export function FaceClock() {
     null
   );
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [allEmployees, setAllEmployees] = useState<
+    Pick<EmployeeRow, "id" | "name" | "store_id">[]
+  >([]);
+  const [faceAuthFailed, setFaceAuthFailed] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
   const supabase = useMemo(() => createKioskClient(), []);
 
   const startCamera = useCallback(async () => {
@@ -81,7 +87,16 @@ export function FaceClock() {
       const rows = ((data as EmployeeRow[]) ?? []).filter((e) =>
         hasRegisteredFace(e.face_descriptor)
       );
-      if (!cancelled) setEmployees(rows);
+      if (!cancelled) {
+        setEmployees(rows);
+        setAllEmployees(
+          ((data as EmployeeRow[]) ?? []).map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            store_id: employee.store_id,
+          }))
+        );
+      }
     };
 
     const init = async () => {
@@ -127,6 +142,8 @@ export function FaceClock() {
     setMessage(null);
     setMatchRate(null);
     setOverlayHint("顔をカメラに向けてください");
+    setFaceAuthFailed(false);
+    setShowQrModal(false);
   }, [mode]);
 
   const runClockIn = async (identified: MatchResult, storeId: string) => {
@@ -196,6 +213,7 @@ export function FaceClock() {
     setProcessing(true);
     setMessage(null);
     setMatchRate(null);
+    setFaceAuthFailed(false);
     setOverlayHint("認証中...");
 
     try {
@@ -207,6 +225,7 @@ export function FaceClock() {
           type: "error",
           text: "もう一度正面を向いて撮影してください",
         });
+        setFaceAuthFailed(true);
         return;
       }
 
@@ -216,6 +235,7 @@ export function FaceClock() {
           type: "error",
           text: "複数の顔が検出されました。お一人でカメラの前に立ってください。",
         });
+        setFaceAuthFailed(true);
         return;
       }
 
@@ -234,6 +254,7 @@ export function FaceClock() {
             ? `もう一度正面を向いて撮影してください（一致率 ${bestMatch.matchRate}% / 必要 ${FACE_MATCH_MIN_RATE}%以上）`
             : "もう一度正面を向いて撮影してください",
         });
+        setFaceAuthFailed(true);
         return;
       }
 
@@ -290,6 +311,7 @@ export function FaceClock() {
           text: err.message || "打刻に失敗しました。",
         });
       }
+      setFaceAuthFailed(true);
     } finally {
       setProcessing(false);
     }
@@ -362,6 +384,31 @@ export function FaceClock() {
       </Card>
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
+
+      {faceAuthFailed && !showQrModal && (
+        <Button
+          type="button"
+          variant="secondary"
+          fullWidth
+          onClick={() => setShowQrModal(true)}
+          className="py-3"
+        >
+          QRコードで緊急打刻
+        </Button>
+      )}
+
+      {showQrModal && (
+        <QrEmergencyClock
+          mode={mode}
+          employees={allEmployees}
+          onClose={() => setShowQrModal(false)}
+          onSuccess={(text) => {
+            setShowQrModal(false);
+            setFaceAuthFailed(false);
+            setMessage({ type: "success", text });
+          }}
+        />
+      )}
 
       {mode === "clock_in" ? (
         <Button

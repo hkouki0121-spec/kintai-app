@@ -22,13 +22,16 @@ export default async function StoresPage() {
 
   const addFriendUrl = process.env.NEXT_PUBLIC_LINE_ADD_FRIEND_URL?.trim() || null;
   const webhookUrl = resolveWebhookUrl(host);
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
+    (host ? `https://${host}` : "");
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">店舗管理</h2>
         <p className="text-sm text-slate-600">
-          店舗の追加・編集と、店舗ごとの LINE 通知グループ設定ができます。
+          店舗の追加・編集、LINE 通知グループ、緊急打刻用QRコードの管理ができます。
         </p>
       </div>
       <StoreManager
@@ -36,6 +39,7 @@ export default async function StoresPage() {
         initialGroups={(groups as LineGroup[]) ?? []}
         addFriendUrl={addFriendUrl}
         webhookUrl={webhookUrl}
+        appBaseUrl={appBaseUrl}
       />
     </div>
   );

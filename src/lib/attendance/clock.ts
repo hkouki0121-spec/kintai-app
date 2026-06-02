@@ -6,11 +6,13 @@ export type ClockInParams = {
   employeeId: string;
   storeId: string;
   clockIn: string;
+  isQrClock?: boolean;
 };
 
 export type ClockOutParams = {
   employeeId: string;
   clockOut: string;
+  isQrClock?: boolean;
 };
 
 function parseSupabaseError(error: { message?: string; code?: string }): string {
@@ -76,7 +78,7 @@ async function closeRemainingOpenRecords(
 /** 出勤: 未退勤がなければ INSERT のみ。既にあれば ALREADY_CLOCKED_IN */
 export async function clockIn(
   supabase: SupabaseClient,
-  { employeeId, storeId, clockIn: clockInAt }: ClockInParams
+  { employeeId, storeId, clockIn: clockInAt, isQrClock = false }: ClockInParams
 ): Promise<void> {
   const openId = await findAnyOpenRecordId(supabase, employeeId);
   if (openId) {
@@ -87,6 +89,7 @@ export async function clockIn(
     employee_id: employeeId,
     store_id: storeId,
     clock_in: clockInAt,
+    is_qr_clock: isQrClock,
   });
 
   if (insertError) {
@@ -103,16 +106,23 @@ export async function clockIn(
  */
 export async function clockOut(
   supabase: SupabaseClient,
-  { employeeId, clockOut: clockOutAt }: ClockOutParams
+  { employeeId, clockOut: clockOutAt, isQrClock = false }: ClockOutParams
 ): Promise<void> {
   const recordId = await findLatestOpenRecordId(supabase, employeeId);
   if (!recordId) {
     throw new Error("NO_OPEN_RECORD");
   }
 
+  const updatePayload: { clock_out: string; is_qr_clock?: boolean } = {
+    clock_out: clockOutAt,
+  };
+  if (isQrClock) {
+    updatePayload.is_qr_clock = true;
+  }
+
   const { error: updateError } = await supabase
     .from("attendance_records")
-    .update({ clock_out: clockOutAt })
+    .update(updatePayload)
     .eq("id", recordId)
     .eq("employee_id", employeeId)
     .is("clock_out", null);

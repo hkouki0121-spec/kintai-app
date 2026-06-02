@@ -11,6 +11,7 @@ export type NotifyStoreAttendanceParams = {
   storeId: string;
   employeeName: string;
   timestamp: string;
+  isQrClock?: boolean;
 };
 
 type StoreLineSettings = {
@@ -93,6 +94,7 @@ export async function notifyStoreAttendanceLine(
     employeeName: params.employeeName,
     storeName: store.name,
     timestamp: params.timestamp,
+    isQrClock: params.isQrClock,
   });
 
   await sendLinePushMessage(recipient, message);

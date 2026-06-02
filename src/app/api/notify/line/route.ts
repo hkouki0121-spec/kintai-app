@@ -9,6 +9,7 @@ type NotifyLineRequest = {
   storeId: string;
   employeeName: string;
   timestamp: string;
+  isQrClock?: boolean;
 };
 
 function isValidRequest(body: unknown): body is NotifyLineRequest {

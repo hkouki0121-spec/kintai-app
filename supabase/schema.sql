@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS stores (
   line_group_id TEXT,
   line_notify_enabled BOOLEAN NOT NULL DEFAULT false,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  qr_token_hash TEXT,
+  qr_token_updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -48,6 +50,7 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   store_id UUID NOT NULL REFERENCES stores(id),
   clock_in TIMESTAMPTZ NOT NULL,
   clock_out TIMESTAMPTZ,
+  is_qr_clock BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT clock_out_after_in CHECK (clock_out IS NULL OR clock_out > clock_in)
 );
@@ -55,6 +58,23 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance_records(employee_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_store ON attendance_records(store_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_clock_in ON attendance_records(clock_in DESC);
+
+-- 勤怠修正履歴
+CREATE TABLE IF NOT EXISTS attendance_corrections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attendance_record_id UUID NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
+  corrector_user_id UUID,
+  corrector_name TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  clock_in_before TIMESTAMPTZ,
+  clock_in_after TIMESTAMPTZ,
+  clock_out_before TIMESTAMPTZ,
+  clock_out_after TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_attendance_corrections_record
+  ON attendance_corrections(attendance_record_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_attendance_one_open_per_employee
   ON attendance_records (employee_id)
@@ -101,6 +121,7 @@ ALTER TABLE stores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE line_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_payroll ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "admin_all_stores" ON stores
@@ -113,6 +134,9 @@ CREATE POLICY "admin_all_employees" ON employees
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "admin_all_attendance" ON attendance_records
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "admin_all_attendance_corrections" ON attendance_corrections
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "admin_all_payroll" ON monthly_payroll

@@ -6,6 +6,7 @@ export type NotifyLineAttendanceParams = {
   storeId: string;
   employeeName: string;
   timestamp: string;
+  isQrClock?: boolean;
 };
 
 /** 打刻成功後に LINE 通知 API を呼ぶ（失敗しても打刻結果に影響しない） */

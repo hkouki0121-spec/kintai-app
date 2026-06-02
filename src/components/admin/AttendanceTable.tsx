@@ -6,6 +6,7 @@ import type { EmployeeWithAttendance, Store } from "@/types/database";
 import { formatJstDateTime } from "@/lib/format";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { StoreSelect } from "@/components/admin/StoreSelect";
+import { AttendanceEditModal } from "@/components/admin/AttendanceEditModal";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +23,7 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
   const [storeId, setStoreId] = useState(searchParams.get("store") ?? initialStoreId);
+  const [editingRecord, setEditingRecord] = useState<EmployeeWithAttendance | null>(null);
 
   const applyFilter = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -63,6 +65,7 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
               <th className="px-4 py-3 font-medium">出勤</th>
               <th className="px-4 py-3 font-medium">退勤</th>
               <th className="px-4 py-3 font-medium">状態</th>
+              <th className="px-4 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -77,11 +80,23 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
                   {row.clock_out ? formatJstDateTime(row.clock_out) : "—"}
                 </td>
                 <td className="px-4 py-3">
-                  {row.clock_out ? (
-                    <span className="text-slate-600">完了</span>
-                  ) : (
-                    <span className="font-medium text-blue-600">勤務中</span>
-                  )}
+                  <div className="flex flex-col gap-1">
+                    {row.clock_out ? (
+                      <span className="text-slate-600">完了</span>
+                    ) : (
+                      <span className="font-medium text-blue-600">勤務中</span>
+                    )}
+                    {row.is_qr_clock && (
+                      <span className="w-fit rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                        QR打刻
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <Button type="button" variant="ghost" onClick={() => setEditingRecord(row)}>
+                    修正
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -91,6 +106,17 @@ export function AttendanceTable({ records, stores, initialStoreId }: Props) {
           <p className="py-8 text-center text-sm text-slate-500">該当する記録がありません</p>
         )}
       </div>
+
+      {editingRecord && (
+        <AttendanceEditModal
+          record={editingRecord}
+          onClose={() => setEditingRecord(null)}
+          onSaved={() => {
+            setEditingRecord(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -12,9 +12,14 @@ export function buildAttendanceLineMessage(params: {
   employeeName: string;
   storeName: string;
   timestamp: string;
+  isQrClock?: boolean;
 }): string {
-  const label = params.type === "clock_in" ? "出勤" : "退勤";
   const time = formatLineNotifyDateTime(params.timestamp);
 
+  if (params.isQrClock) {
+    return `【QR打刻】\n${params.employeeName}さん\n店舗：${params.storeName}\n時刻：${time}`;
+  }
+
+  const label = params.type === "clock_in" ? "出勤" : "退勤";
   return `【${label}】\n${params.employeeName}さん\n店舗：${params.storeName}\n時刻：${time}`;
 }

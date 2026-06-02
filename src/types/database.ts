@@ -16,6 +16,8 @@ export type Store = {
   line_group_id: string | null;
   line_notify_enabled: boolean;
   is_active: boolean;
+  qr_token_hash: string | null;
+  qr_token_updated_at: string | null;
   created_at: string;
 };
 
@@ -46,6 +48,20 @@ export type AttendanceRecord = {
   store_id: string;
   clock_in: string;
   clock_out: string | null;
+  is_qr_clock: boolean;
+  created_at: string;
+};
+
+export type AttendanceCorrection = {
+  id: string;
+  attendance_record_id: string;
+  corrector_user_id: string | null;
+  corrector_name: string;
+  reason: string;
+  clock_in_before: string | null;
+  clock_in_after: string | null;
+  clock_out_before: string | null;
+  clock_out_after: string | null;
   created_at: string;
 };
 

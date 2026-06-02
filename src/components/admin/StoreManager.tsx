@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { LineGroup, Store } from "@/types/database";
 import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
+import { StoreQrPanel } from "@/components/admin/StoreQrPanel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
@@ -14,6 +15,7 @@ type Props = {
   initialGroups: LineGroup[];
   addFriendUrl: string | null;
   webhookUrl: string;
+  appBaseUrl: string;
 };
 
 type StoreEditDraft = {
@@ -36,7 +38,7 @@ function storeToDraft(store: Store): StoreEditDraft {
   };
 }
 
-export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl }: Props) {
+export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl, appBaseUrl }: Props) {
   const [stores, setStores] = useState(initialStores);
   const [groups] = useState(initialGroups);
   const [name, setName] = useState("");
@@ -274,6 +276,10 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                   <Button type="button" onClick={() => handleSaveEdit(store.id)} disabled={saving}>
                     {saving ? "保存中…" : "保存"}
                   </Button>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <StoreQrPanel store={store} appBaseUrl={appBaseUrl} />
                 </div>
               </div>
             )}
