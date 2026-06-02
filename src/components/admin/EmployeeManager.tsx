@@ -9,11 +9,9 @@ import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
 import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
-import {
-  countFaceDescriptors,
-  isFaceRegistrationComplete,
-} from "@/lib/face/descriptors";
+import { countFaceDescriptors } from "@/lib/face/descriptors";
 import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
+import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
 import { formatYen } from "@/lib/format";
 import type { FaceDescriptorEntry } from "@/types/database";
 
@@ -140,22 +138,44 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
     await refresh();
   };
 
-  const handleFaceSave = async (id: string, descriptors: FaceDescriptorEntry[]) => {
+  const handleFaceUpdate = async (id: string, descriptors: FaceDescriptorEntry[]) => {
     const { error } = await supabase
       .from("employees")
-      .update({ face_descriptor: descriptors })
+      .update({ face_descriptor: descriptors.length > 0 ? descriptors : null })
       .eq("id", id);
     if (error) {
-      setMessage(error.message);
-      return;
+      throw new Error(error.message);
     }
     await refresh();
-    setFaceRegisterTarget(null);
-    setMessage(`顔を${descriptors.length}枚登録しました`);
+    setFaceRegisterTarget((current) =>
+      current?.id === id
+        ? { ...current, face_descriptor: descriptors.length > 0 ? descriptors : null }
+        : current
+    );
   };
 
   return (
     <div className="space-y-6">
+      <Card>
+        <h3 className="font-semibold text-slate-900">顔認証設定</h3>
+        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-slate-500">一致率閾値</dt>
+            <dd className="font-semibold text-slate-900">{FACE_MATCH_MIN_RATE}%</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">最大登録枚数</dt>
+            <dd className="font-semibold text-slate-900">{MAX_FACE_DESCRIPTORS}枚 / 従業員</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-slate-500">認証方式</dt>
+            <dd className="text-slate-700">
+              登録済み写真すべてと比較し、最も高い一致率を採用（{FACE_MATCH_MIN_RATE}%以上で打刻成功）
+            </dd>
+          </div>
+        </dl>
+      </Card>
+
       <Card>
         <h3 className="font-semibold">新規従業員</h3>
         {activeStores.length === 0 ? (
@@ -210,7 +230,8 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
               type={
                 message.includes("追加") ||
                 message.includes("登録") ||
-                message.includes("削除しました")
+                message.includes("削除しました") ||
+                message.includes("顔写真")
                   ? "success"
                   : "error"
               }
@@ -243,22 +264,19 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
                   <span className="text-slate-400">（22時以降 ×1.25）</span>
                 </p>
                 <p className="mt-1 text-sm">
-                  {isFaceRegistrationComplete(emp.face_descriptor) ? (
-                    <span className="text-emerald-700">
-                      顔登録済み（{MAX_FACE_DESCRIPTORS}/{MAX_FACE_DESCRIPTORS}枚）
-                    </span>
-                  ) : countFaceDescriptors(emp.face_descriptor) > 0 ? (
-                    <span className="text-amber-700">
-                      顔登録途中（{countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚）
+                  登録顔写真:{" "}
+                  {countFaceDescriptors(emp.face_descriptor) > 0 ? (
+                    <span className="font-medium text-emerald-700">
+                      {countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚
                     </span>
                   ) : (
-                    <span className="text-amber-700">顔未登録</span>
+                    <span className="text-amber-700">0/{MAX_FACE_DESCRIPTORS}枚（未登録）</span>
                   )}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="primary" onClick={() => setFaceRegisterTarget(emp)}>
-                  顔登録
+                  顔写真管理
                 </Button>
                 <Button variant="ghost" onClick={() => setExpandedId(expandedId === emp.id ? null : emp.id)}>
                   {expandedId === emp.id ? "閉じる" : "編集"}
@@ -274,6 +292,10 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
 
             {expandedId === emp.id && (
               <div className="mt-4 border-t border-slate-100 pt-4">
+                <p className="mb-4 text-sm text-slate-600">
+                  登録顔写真: {countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚
+                  ／ 一致率閾値: {FACE_MATCH_MIN_RATE}%
+                </p>
                 <label className="mb-1 block text-sm text-slate-600">所属店舗</label>
                 <select
                   defaultValue={emp.store_id}
@@ -305,7 +327,7 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
             employeeId={faceRegisterTarget.id}
             employeeName={faceRegisterTarget.name}
             faceDescriptor={faceRegisterTarget.face_descriptor}
-            onSave={handleFaceSave}
+            onUpdate={handleFaceUpdate}
             onClose={() => setFaceRegisterTarget(null)}
           />
         )}

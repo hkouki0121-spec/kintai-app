@@ -24,7 +24,11 @@ export function parseFaceDescriptors(raw: unknown): FaceDescriptorEntry[] {
 }
 
 export function isFaceRegistrationComplete(raw: unknown): boolean {
-  return parseFaceDescriptors(raw).length >= MAX_FACE_DESCRIPTORS;
+  return countFaceDescriptors(raw) >= MAX_FACE_DESCRIPTORS;
+}
+
+export function hasRegisteredFace(raw: unknown): boolean {
+  return countFaceDescriptors(raw) > 0;
 }
 
 export function countFaceDescriptors(raw: unknown): number {

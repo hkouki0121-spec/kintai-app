@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyLineAttendance } from "@/lib/attendance/notify-line";
-import { isFaceRegistrationComplete } from "@/lib/face/descriptors";
+import { hasRegisteredFace } from "@/lib/face/descriptors";
 import { verifyStoreGeofence } from "@/lib/geo/store-location";
+import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
 import { createKioskClient, getSupabaseAuthRole } from "@/lib/supabase/kiosk-client";
 import type { MatchResult } from "@/lib/face/recognition";
 import { Button } from "@/components/ui/Button";
@@ -87,7 +88,7 @@ export function FaceClock() {
         .select("id, name, store_id, face_descriptor, stores(id, address, latitude, longitude)")
         .eq("is_active", true);
       const rows = ((data as unknown as EmployeeRow[]) ?? []).filter((e) =>
-        isFaceRegistrationComplete(e.face_descriptor)
+        hasRegisteredFace(e.face_descriptor)
       );
       if (!cancelled) setEmployees(rows);
     };
@@ -196,7 +197,7 @@ export function FaceClock() {
     if (employees.length === 0) {
       setMessage({
         type: "error",
-        text: "顔登録（10枚）が完了した従業員がいません。管理者に顔登録を依頼してください。",
+        text: "顔写真が登録された従業員がいません。管理者に顔登録を依頼してください。",
       });
       return;
     }
@@ -239,7 +240,7 @@ export function FaceClock() {
         setMessage({
           type: "error",
           text: bestMatch
-            ? `もう一度正面を向いて撮影してください（一致率 ${bestMatch.matchRate}% / 必要 95%以上）`
+            ? `もう一度正面を向いて撮影してください（一致率 ${bestMatch.matchRate}% / 必要 ${FACE_MATCH_MIN_RATE}%以上）`
             : "もう一度正面を向いて撮影してください",
         });
         return;
@@ -316,7 +317,9 @@ export function FaceClock() {
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4 pb-8 sm:p-6">
       <header className="text-center">
         <h1 className="text-2xl font-bold text-slate-900">勤怠打刻</h1>
-        <p className="mt-1 text-sm text-slate-600">顔認証（一致率95%以上）とGPSで出勤・退勤を記録します</p>
+        <p className="mt-1 text-sm text-slate-600">
+          顔認証（一致率{FACE_MATCH_MIN_RATE}%以上）とGPS（店舗から50m以内）で出勤・退勤を記録します
+        </p>
       </header>
 
       <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
@@ -398,7 +401,7 @@ export function FaceClock() {
       )}
 
       <p className="text-center text-xs leading-relaxed text-slate-500">
-        お一人で正面を向けてください。一致率95%以上かつ店舗から50m以内でのみ打刻されます。
+        お一人で正面を向けてください。一致率{FACE_MATCH_MIN_RATE}%以上かつ店舗から50m以内でのみ打刻されます。
         <br />
         位置情報とカメラの利用許可が必要です。
       </p>

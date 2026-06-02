@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeManager } from "@/components/admin/EmployeeManager";
+import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
+import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
 import type { EmployeeWithStore } from "@/types/database";
 
 export default async function EmployeesPage() {
@@ -17,7 +19,9 @@ export default async function EmployeesPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">従業員一覧</h2>
-        <p className="text-sm text-slate-600">所属店舗・時給の設定と顔認証の登録</p>
+        <p className="text-sm text-slate-600">
+          所属店舗・時給の設定と顔写真の管理（最大{MAX_FACE_DESCRIPTORS}枚・一致率{FACE_MATCH_MIN_RATE}%）
+        </p>
       </div>
       <EmployeeManager
         initialEmployees={(data as EmployeeWithStore[]) ?? []}

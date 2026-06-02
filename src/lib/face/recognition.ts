@@ -180,7 +180,7 @@ export function findBestEmployeeMatch(
   return best;
 }
 
-/** 登録済み従業員と照合（95%以上のみ成功） */
+/** 登録済み従業員と照合（設定された一致率以上のみ成功） */
 export function identifyEmployee(
   descriptor: Float32Array,
   employees: EmployeeFaceRecord[]
