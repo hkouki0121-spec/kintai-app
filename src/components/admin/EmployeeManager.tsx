@@ -8,7 +8,14 @@ import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
+import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
 import { formatYen } from "@/lib/format";
+
+type DeleteTarget = {
+  employee: EmployeeWithStore;
+  attendanceCount: number;
+  payrollCount: number;
+};
 
 type Props = {
   initialEmployees: EmployeeWithStore[];
@@ -24,6 +31,8 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
   const [hourlyRate, setHourlyRate] = useState("1000");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [faceRegisterTarget, setFaceRegisterTarget] = useState<EmployeeWithStore | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
@@ -77,6 +86,51 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
 
   const handleToggleActive = async (emp: EmployeeWithStore) => {
     await supabase.from("employees").update({ is_active: !emp.is_active }).eq("id", emp.id);
+    await refresh();
+  };
+
+  const handleDeleteClick = async (emp: EmployeeWithStore) => {
+    setMessage(null);
+    const [{ count: attendanceCount }, { count: payrollCount }] = await Promise.all([
+      supabase
+        .from("attendance_records")
+        .select("*", { count: "exact", head: true })
+        .eq("employee_id", emp.id),
+      supabase
+        .from("monthly_payroll")
+        .select("*", { count: "exact", head: true })
+        .eq("employee_id", emp.id),
+    ]);
+
+    setDeleteTarget({
+      employee: emp,
+      attendanceCount: attendanceCount ?? 0,
+      payrollCount: payrollCount ?? 0,
+    });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("employees")
+      .delete()
+      .eq("id", deleteTarget.employee.id);
+
+    setDeleting(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setDeleteTarget(null);
+    if (expandedId === deleteTarget.employee.id) {
+      setExpandedId(null);
+    }
+    setMessage(`${deleteTarget.employee.name} を削除しました`);
     await refresh();
   };
 
@@ -148,7 +202,11 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
           <div className="mt-3">
             <Alert
               type={
-                message.includes("追加") || message.includes("登録") ? "success" : "error"
+                message.includes("追加") ||
+                message.includes("登録") ||
+                message.includes("削除しました")
+                  ? "success"
+                  : "error"
               }
             >
               {message}
@@ -196,6 +254,9 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
                 <Button variant="secondary" onClick={() => handleToggleActive(emp)}>
                   {emp.is_active ? "無効化" : "有効化"}
                 </Button>
+                <Button variant="danger" onClick={() => handleDeleteClick(emp)}>
+                  削除
+                </Button>
               </div>
             </div>
 
@@ -234,6 +295,16 @@ export function EmployeeManager({ initialEmployees, stores }: Props) {
             hasFace={!!faceRegisterTarget.face_descriptor}
             onSave={handleFaceSave}
             onClose={() => setFaceRegisterTarget(null)}
+          />
+        )}
+        {deleteTarget && (
+          <EmployeeDeleteConfirmModal
+            employeeName={deleteTarget.employee.name}
+            attendanceCount={deleteTarget.attendanceCount}
+            payrollCount={deleteTarget.payrollCount}
+            deleting={deleting}
+            onConfirm={handleDeleteConfirm}
+            onClose={() => !deleting && setDeleteTarget(null)}
           />
         )}
         {employees.length === 0 && (
