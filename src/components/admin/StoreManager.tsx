@@ -45,7 +45,7 @@ function storeToDraft(store: Store): StoreEditDraft {
 
 export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl }: Props) {
   const [stores, setStores] = useState(initialStores);
-  const [groups, setGroups] = useState(initialGroups);
+  const [groups] = useState(initialGroups);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
