@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { establishRecoverySession } from "@/lib/auth/recovery-session";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
@@ -18,52 +19,41 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     let cancelled = false;
 
-    const initRecoverySession = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
-
-      if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-        if (cancelled) return;
-        if (exchangeError) {
-          setError(
-            "リンクが無効または期限切れです。再度パスワード再設定を申請してください。"
-          );
-          setInitializing(false);
-          return;
-        }
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
         setReady(true);
         setInitializing(false);
-        return;
+        setError(null);
       }
+    });
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
+    const initRecoverySession = async () => {
+      const result = await establishRecoverySession(supabase);
       if (cancelled) return;
 
-      if (session) {
-        setReady(true);
-        setInitializing(false);
-        return;
+      if (result.ok) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session) {
+          setReady(true);
+          setError(null);
+        } else {
+          setError("セッションの確立に失敗しました。リンクの有効期限を確認してください。");
+        }
+      } else {
+        setError(result.error);
       }
 
       setInitializing(false);
     };
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setReady(true);
-        setInitializing(false);
-      }
-    });
 
     void initRecoverySession();
 
@@ -83,6 +73,15 @@ export default function ResetPasswordPage() {
     }
     if (password !== confirmPassword) {
       setError("パスワードが一致しません");
+      return;
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setError("セッションが無効です。パスワード再設定を最初からやり直してください。");
       return;
     }
 
