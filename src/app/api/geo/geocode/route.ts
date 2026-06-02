@@ -22,12 +22,12 @@ export async function GET(request: Request) {
   });
 
   if (!response.ok) {
-    return NextResponse.json({ error: "住所の位置取得に失敗しました" }, { status: 502 });
+    return NextResponse.json({ error: "geocode_failed" }, { status: 502 });
   }
 
   const results = (await response.json()) as Array<{ lat: string; lon: string }>;
   if (results.length === 0) {
-    return NextResponse.json({ error: "住所から位置を特定できませんでした" }, { status: 404 });
+    return NextResponse.json({ error: "geocode_failed" }, { status: 404 });
   }
 
   return NextResponse.json({

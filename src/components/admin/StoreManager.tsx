@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { LineGroup, Store } from "@/types/database";
 import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
@@ -16,19 +16,32 @@ type Props = {
   webhookUrl: string;
 };
 
-type StoreEditableFields = Partial<
-  Pick<
-    Store,
-    | "name"
-    | "address"
-    | "phone"
-    | "manager_name"
-    | "line_group_id"
-    | "line_notify_enabled"
-    | "latitude"
-    | "longitude"
-  >
->;
+type StoreEditDraft = {
+  name: string;
+  address: string;
+  phone: string;
+  manager_name: string;
+  latitude: string;
+  longitude: string;
+  line_group_id: string;
+  line_notify_enabled: boolean;
+};
+
+const GEOCODE_FAILURE_MESSAGE =
+  "住所から座標を取得できませんでした。手動で入力してください";
+
+function storeToDraft(store: Store): StoreEditDraft {
+  return {
+    name: store.name,
+    address: store.address ?? "",
+    phone: store.phone ?? "",
+    manager_name: store.manager_name ?? "",
+    latitude: store.latitude != null ? String(store.latitude) : "",
+    longitude: store.longitude != null ? String(store.longitude) : "",
+    line_group_id: store.line_group_id ?? "",
+    line_notify_enabled: store.line_notify_enabled,
+  };
+}
 
 export function StoreManager({ initialStores, initialGroups, addFriendUrl, webhookUrl }: Props) {
   const [stores, setStores] = useState(initialStores);
@@ -37,6 +50,9 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<StoreEditDraft | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
@@ -45,13 +61,16 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     setStores((data as Store[]) ?? []);
   };
 
-  const refreshGroups = async () => {
-    const response = await fetch("/api/line/groups");
-    const payload = (await response.json()) as { groups?: LineGroup[] };
-    if (response.ok) {
-      setGroups(payload.groups ?? []);
+  useEffect(() => {
+    if (!expandedId) {
+      setEditDraft(null);
+      return;
     }
-  };
+    const store = stores.find((item) => item.id === expandedId);
+    if (store) {
+      setEditDraft(storeToDraft(store));
+    }
+  }, [expandedId, stores]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,42 +91,80 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     await refreshStores();
   };
 
-  const handleUpdate = async (id: string, fields: StoreEditableFields) => {
-    const { error } = await supabase.from("stores").update(fields).eq("id", id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    setMessage("店舗情報を更新しました");
-    await refreshStores();
-  };
-
   const handleToggleActive = async (store: Store) => {
     await supabase.from("stores").update({ is_active: !store.is_active }).eq("id", store.id);
     await refreshStores();
   };
 
-  const handleGeocode = async (store: Store) => {
-    if (!store.address?.trim()) {
+  const handleGeocodeFromAddress = async () => {
+    if (!editDraft) return;
+    const addressValue = editDraft.address.trim();
+    if (!addressValue) {
       setMessage("住所を入力してから座標を取得してください");
       return;
     }
+
+    setGeocoding(true);
     setMessage(null);
-    const params = new URLSearchParams({ address: store.address.trim() });
-    const response = await fetch(`/api/geo/geocode?${params.toString()}`);
-    const payload = (await response.json()) as {
-      latitude?: number;
-      longitude?: number;
-      error?: string;
-    };
-    if (!response.ok || payload.latitude == null || payload.longitude == null) {
-      setMessage(payload.error ?? "住所から座標を取得できませんでした");
+
+    try {
+      const params = new URLSearchParams({ address: addressValue });
+      const response = await fetch(`/api/geo/geocode?${params.toString()}`);
+      const payload = (await response.json()) as {
+        latitude?: number;
+        longitude?: number;
+      };
+
+      if (!response.ok || payload.latitude == null || payload.longitude == null) {
+        setMessage(GEOCODE_FAILURE_MESSAGE);
+        return;
+      }
+
+      setEditDraft({
+        ...editDraft,
+        latitude: String(payload.latitude),
+        longitude: String(payload.longitude),
+      });
+      setMessage("座標を取得しました。保存ボタンで登録してください。");
+    } catch {
+      setMessage(GEOCODE_FAILURE_MESSAGE);
+    } finally {
+      setGeocoding(false);
+    }
+  };
+
+  const handleSaveEdit = async (storeId: string) => {
+    if (!editDraft) return;
+
+    setSaving(true);
+    setMessage(null);
+
+    const latitude = editDraft.latitude.trim();
+    const longitude = editDraft.longitude.trim();
+
+    const { error } = await supabase
+      .from("stores")
+      .update({
+        name: editDraft.name.trim(),
+        address: editDraft.address.trim() || null,
+        phone: editDraft.phone.trim() || null,
+        manager_name: editDraft.manager_name.trim() || null,
+        latitude: latitude ? Number(latitude) : null,
+        longitude: longitude ? Number(longitude) : null,
+        line_group_id: editDraft.line_group_id || null,
+        line_notify_enabled: editDraft.line_notify_enabled,
+      })
+      .eq("id", storeId);
+
+    setSaving(false);
+
+    if (error) {
+      setMessage(error.message);
       return;
     }
-    await handleUpdate(store.id, {
-      latitude: payload.latitude,
-      longitude: payload.longitude,
-    });
+
+    setMessage("店舗情報を更新しました");
+    await refreshStores();
   };
 
   const selectedGroupLabel = (groupId: string | null) => {
@@ -115,8 +172,17 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
     return groups.find((group) => group.group_id === groupId)?.group_name ?? groupId;
   };
 
+  const isSuccessMessage = (text: string) =>
+    text.includes("追加") ||
+    text.includes("更新") ||
+    text.includes("座標を取得しました");
+
   return (
     <div className="space-y-6">
+      {message && (
+        <Alert type={isSuccessMessage(message) ? "success" : "error"}>{message}</Alert>
+      )}
+
       <LineNotifySetup
         initialGroups={groups}
         addFriendUrl={addFriendUrl}
@@ -144,17 +210,6 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
             </Button>
           </div>
         </form>
-        {message && (
-          <div className="mt-3">
-            <Alert
-              type={
-                message.includes("追加") || message.includes("更新") ? "success" : "error"
-              }
-            >
-              {message}
-            </Alert>
-          </div>
-        )}
       </Card>
 
       <div className="space-y-3">
@@ -194,7 +249,10 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="ghost"
-                  onClick={() => setExpandedId(expandedId === store.id ? null : store.id)}
+                  onClick={() => {
+                    setMessage(null);
+                    setExpandedId(expandedId === store.id ? null : store.id);
+                  }}
                 >
                   {expandedId === store.id ? "閉じる" : "編集"}
                 </Button>
@@ -204,45 +262,40 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
               </div>
             </div>
 
-            {expandedId === store.id && (
+            {expandedId === store.id && editDraft && (
               <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm text-slate-600">店舗名</label>
                   <Input
-                    defaultValue={store.name}
-                    onBlur={(e) => handleUpdate(store.id, { name: e.target.value })}
+                    value={editDraft.name}
+                    onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm text-slate-600">管理者名</label>
                   <Input
-                    defaultValue={store.manager_name ?? ""}
+                    value={editDraft.manager_name}
                     placeholder="例：田中 太郎"
-                    onBlur={(e) =>
-                      handleUpdate(store.id, { manager_name: e.target.value || null })
+                    onChange={(e) =>
+                      setEditDraft({ ...editDraft, manager_name: e.target.value })
                     }
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm text-slate-600">電話番号</label>
                   <Input
-                    defaultValue={store.phone ?? ""}
-                    onBlur={(e) =>
-                      handleUpdate(store.id, { phone: e.target.value || null })
-                    }
+                    value={editDraft.phone}
+                    onChange={(e) => setEditDraft({ ...editDraft, phone: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm text-slate-600">LINE通知グループ</label>
                   <select
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                    defaultValue={store.line_group_id ?? ""}
-                    onChange={async (e) => {
-                      await handleUpdate(store.id, {
-                        line_group_id: e.target.value || null,
-                      });
-                      await refreshGroups();
-                    }}
+                    value={editDraft.line_group_id}
+                    onChange={(e) =>
+                      setEditDraft({ ...editDraft, line_group_id: e.target.value })
+                    }
                   >
                     <option value="">通知グループを選択</option>
                     {groups.map((group) => (
@@ -260,9 +313,9 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-slate-300"
-                      defaultChecked={store.line_notify_enabled}
+                      checked={editDraft.line_notify_enabled}
                       onChange={(e) =>
-                        handleUpdate(store.id, { line_notify_enabled: e.target.checked })
+                        setEditDraft({ ...editDraft, line_notify_enabled: e.target.checked })
                       }
                     />
                     LINE通知を有効にする
@@ -271,48 +324,51 @@ export function StoreManager({ initialStores, initialGroups, addFriendUrl, webho
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm text-slate-600">住所</label>
                   <Input
-                    defaultValue={store.address ?? ""}
-                    onBlur={(e) =>
-                      handleUpdate(store.id, { address: e.target.value || null })
-                    }
+                    value={editDraft.address}
+                    onChange={(e) => setEditDraft({ ...editDraft, address: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-slate-600">緯度</label>
+                  <label className="mb-1 block text-sm text-slate-600">緯度 (latitude)</label>
                   <Input
                     type="number"
                     step="any"
-                    defaultValue={store.latitude ?? ""}
+                    value={editDraft.latitude}
                     placeholder="例: 35.681236"
-                    onBlur={(e) =>
-                      handleUpdate(store.id, {
-                        latitude: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
+                    onChange={(e) => setEditDraft({ ...editDraft, latitude: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm text-slate-600">経度</label>
+                  <label className="mb-1 block text-sm text-slate-600">経度 (longitude)</label>
                   <Input
                     type="number"
                     step="any"
-                    defaultValue={store.longitude ?? ""}
+                    value={editDraft.longitude}
                     placeholder="例: 139.767125"
-                    onBlur={(e) =>
-                      handleUpdate(store.id, {
-                        longitude: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
+                    onChange={(e) => setEditDraft({ ...editDraft, longitude: e.target.value })}
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <Button type="button" variant="secondary" onClick={() => handleGeocode(store)}>
-                    住所から座標を取得
+                <div className="flex flex-wrap gap-2 sm:col-span-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleGeocodeFromAddress}
+                    disabled={geocoding || saving}
+                  >
+                    {geocoding ? "取得中…" : "住所から座標を取得"}
                   </Button>
-                  <p className="mt-1 text-xs text-slate-500">
-                    打刻は店舗から50m以内のみ可能です。座標または住所を設定してください。
-                  </p>
+                  <Button
+                    type="button"
+                    onClick={() => handleSaveEdit(store.id)}
+                    disabled={geocoding || saving}
+                  >
+                    {saving ? "保存中…" : "保存"}
+                  </Button>
                 </div>
+                <p className="text-xs text-slate-500 sm:col-span-2">
+                  「住所から座標を取得」で OpenStreetMap (Nominatim) から緯度・経度を自動入力します。
+                  取得後は「保存」ボタンで stores テーブルに反映してください。打刻は店舗から50m以内のみ可能です。
+                </p>
               </div>
             )}
           </Card>
