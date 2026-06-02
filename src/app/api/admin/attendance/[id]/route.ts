@@ -48,9 +48,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ ok: true, correction });
   } catch (error) {
     if (error instanceof AttendanceAdminError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(error.toPayload(), { status: error.status });
     }
     const message = error instanceof Error ? error.message : "correction_failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message, message, code: null, details: null }, { status: 400 });
   }
 }

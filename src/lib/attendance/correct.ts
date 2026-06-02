@@ -1,5 +1,6 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import type { AttendanceCorrection } from "@/types/database";
+import { AttendanceAdminError } from "@/lib/attendance/admin-auth";
 
 export type ApplyCorrectionParams = {
   recordId: string;
@@ -8,6 +9,20 @@ export type ApplyCorrectionParams = {
   reason: string;
   correctedBy: string;
 };
+
+function throwDbError(
+  step: string,
+  error: PostgrestError,
+  summary: string,
+  debug?: Record<string, unknown>
+): never {
+  throw new AttendanceAdminError(summary, 400, {
+    code: error.code ?? null,
+    details: error.details ?? null,
+    denialStep: step,
+    debug,
+  });
+}
 
 export async function applyAttendanceCorrection(
   supabase: SupabaseClient,
@@ -19,7 +34,9 @@ export async function applyAttendanceCorrection(
     .eq("id", params.recordId)
     .maybeSingle();
 
-  if (fetchError) throw new Error(fetchError.message);
+  if (fetchError) {
+    throwDbError("attendance_record_fetch", fetchError, fetchError.message);
+  }
   if (!record) throw new Error("勤怠記録が見つかりません");
 
   const nextClockIn = params.clockIn ?? record.clock_in;
@@ -45,7 +62,11 @@ export async function applyAttendanceCorrection(
     })
     .eq("id", params.recordId);
 
-  if (updateError) throw new Error(updateError.message);
+  if (updateError) {
+    throwDbError("attendance_record_update", updateError, updateError.message, {
+      recordId: params.recordId,
+    });
+  }
 
   const { data: correction, error: insertError } = await supabase
     .from("attendance_corrections")
@@ -64,7 +85,14 @@ export async function applyAttendanceCorrection(
     .select("*")
     .single();
 
-  if (insertError) throw new Error(insertError.message);
+  if (insertError) {
+    throwDbError("attendance_correction_insert", insertError, insertError.message, {
+      recordId: params.recordId,
+      employeeId: record.employee_id,
+      companyId: record.company_id,
+    });
+  }
+
   return correction as AttendanceCorrection;
 }
 
@@ -86,7 +114,11 @@ export async function createManualAttendanceWithCorrection(
     .eq("id", params.employeeId)
     .maybeSingle();
 
-  if (employeeError) throw new Error(employeeError.message);
+  if (employeeError) {
+    throwDbError("employee_fetch_service", employeeError, employeeError.message, {
+      employeeId: params.employeeId,
+    });
+  }
   if (!employee) throw new Error("従業員が見つかりません");
 
   const clockOut = params.clockOut ?? null;
@@ -107,7 +139,13 @@ export async function createManualAttendanceWithCorrection(
     .select("id, employee_id, company_id, store_id, clock_in, clock_out")
     .single();
 
-  if (insertRecordError) throw new Error(insertRecordError.message);
+  if (insertRecordError) {
+    throwDbError("attendance_record_insert", insertRecordError, insertRecordError.message, {
+      employeeId: employee.id,
+      employeeCompanyId: employee.company_id,
+      employeeStoreId: employee.store_id,
+    });
+  }
 
   const { data: correction, error: insertCorrectionError } = await supabase
     .from("attendance_corrections")
@@ -126,7 +164,13 @@ export async function createManualAttendanceWithCorrection(
     .select("*")
     .single();
 
-  if (insertCorrectionError) throw new Error(insertCorrectionError.message);
+  if (insertCorrectionError) {
+    throwDbError("attendance_correction_insert", insertCorrectionError, insertCorrectionError.message, {
+      attendanceRecordId: record.id,
+      employeeId: record.employee_id,
+      companyId: record.company_id,
+    });
+  }
 
   return { recordId: record.id, correction: correction as AttendanceCorrection };
 }

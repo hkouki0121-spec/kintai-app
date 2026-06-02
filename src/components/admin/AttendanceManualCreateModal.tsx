@@ -14,9 +14,34 @@ type Props = {
   onSaved: () => void;
 };
 
+type ApiErrorPayload = {
+  error?: string;
+  message?: string;
+  code?: string | null;
+  details?: string | null;
+  denialStep?: string | null;
+  debug?: Record<string, unknown>;
+};
+
 function fromDatetimeLocalValue(value: string): string | null {
   if (!value) return null;
   return fromZonedTime(value, TIMEZONE).toISOString();
+}
+
+function formatApiError(data: ApiErrorPayload): string {
+  const lines = [
+    data.error ?? data.message ?? "登録に失敗しました",
+    data.denialStep ? `判定箇所: ${data.denialStep}` : null,
+    data.message && data.message !== data.error ? `message: ${data.message}` : null,
+    data.code ? `code: ${data.code}` : null,
+    data.details ? `details: ${data.details}` : null,
+  ];
+
+  if (data.debug) {
+    lines.push(`debug: ${JSON.stringify(data.debug, null, 2)}`);
+  }
+
+  return lines.filter(Boolean).join("\n");
 }
 
 export function AttendanceManualCreateModal({ employees, onClose, onSaved }: Props) {
@@ -59,9 +84,9 @@ export function AttendanceManualCreateModal({ employees, onClose, onSaved }: Pro
         }),
       });
 
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as ApiErrorPayload;
       if (!res.ok) {
-        setError(data.error ?? "登録に失敗しました");
+        setError(formatApiError(data));
         return;
       }
 
@@ -139,7 +164,11 @@ export function AttendanceManualCreateModal({ employees, onClose, onSaved }: Pro
             />
           </div>
 
-          {error && <Alert type="error">{error}</Alert>}
+          {error && (
+            <Alert type="error">
+              <pre className="whitespace-pre-wrap break-words text-sm">{error}</pre>
+            </Alert>
+          )}
 
           <div className="flex gap-2">
             <Button type="button" variant="secondary" onClick={onClose} fullWidth>
