@@ -5,6 +5,7 @@ import {
   NIGHT_RATE_MULTIPLIER,
   TIMEZONE,
 } from "@/lib/constants";
+import { floorYen } from "@/lib/payroll/floor-yen";
 import {
   isWorkSegmentEligible,
   roundMinutesToHalfHours,
@@ -159,11 +160,6 @@ export function calculateEmployeePayroll(
 
 function minutesToHours(minutes: number): number {
   return Math.round((minutes / 60) * 100) / 100;
-}
-
-/** 給与金額は小数点以下切り捨て（例: 588.5 → 588） */
-function floorYen(y: number): number {
-  return Math.floor(y);
 }
 
 /** 月末判定（JST） */

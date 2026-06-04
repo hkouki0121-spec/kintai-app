@@ -33,7 +33,7 @@ function buildPayslipHtml(row: PayrollWithEmployee, year: number, month: number)
         <tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;">深夜給</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">${formatYen(Number(row.night_pay))}</td></tr>
         <tr><td style="padding:12px 0;color:#64748b;font-size:15px;">合計支給額</td><td style="padding:12px 0;font-size:18px;font-weight:700;">${formatYen(Number(row.total_pay))}</td></tr>
       </table>
-      <p style="margin:0;font-size:12px;color:#64748b;">備考：勤務時間は30分単位切り捨て、22時以降は深夜手当1.25倍、残業は1日8時間超過分</p>
+      <p style="margin:0;font-size:12px;color:#64748b;">備考：勤務時間は30分単位切り捨て、22時以降は深夜手当1.25倍、残業は1日8時間超過分。給与計算は円未満切り捨て</p>
     </div>
   `;
 }

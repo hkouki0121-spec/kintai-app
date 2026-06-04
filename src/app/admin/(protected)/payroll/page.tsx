@@ -43,6 +43,7 @@ export default async function PayrollPage({
         <h2 className="text-2xl font-bold text-slate-900">給与計算</h2>
         <p className="text-sm text-slate-600">
           店舗を選択して給与を計算・確認できます。15分未満の勤務は除外、30分単位切り捨て。
+          給与計算は円未満切り捨てで計算しています。
         </p>
       </div>
       <PayrollManager

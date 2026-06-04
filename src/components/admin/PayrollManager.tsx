@@ -211,6 +211,10 @@ export function PayrollManager({
           15分未満の勤務区間は0時間、以降は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
           残業時間は1日8時間を超えた分の合計です。月末は自動集計（Vercel Cron）も実行されます。
         </p>
+        <p className="mt-1 text-xs text-slate-500">
+          給与計算は円未満切り捨てで計算しています（通常給・深夜給・合計支給額）。
+          既存の給与データを反映するには「給与を計算」を再実行してください。
+        </p>
       </Card>
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
