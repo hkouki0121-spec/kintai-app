@@ -1,4 +1,4 @@
-import { addMinutes, endOfMonth, startOfMonth } from "date-fns";
+import { addMinutes, endOfMonth } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import {
   DAILY_STATUTORY_MINUTES,
@@ -6,10 +6,15 @@ import {
   TIMEZONE,
 } from "@/lib/constants";
 import { floorYen } from "@/lib/payroll/floor-yen";
+import { getJstMonthBounds } from "@/lib/payroll/jst-month";
 import {
   isWorkSegmentEligible,
-  roundMinutesToHalfHours,
+  roundMinutesToPayrollHours,
 } from "@/lib/payroll/round-hours";
+import {
+  getPayrollSettings,
+  type PayrollSettings,
+} from "@/lib/payroll/settings";
 
 export type WorkSegment = {
   regularMinutes: number;
@@ -68,17 +73,11 @@ export type PayrollResult = {
   year: number;
   month: number;
   attendanceDays: number;
-  /** 実勤務（通常・時間） */
   actualRegularHours: number;
-  /** 実勤務（深夜・時間） */
   actualNightHours: number;
-  /** 実勤務（合計・時間） */
   actualTotalHours: number;
-  /** 月間残業時間（1日8時間超過分の合計） */
   overtimeHours: number;
-  /** 給与計算用（30分切り捨て後・通常） */
   regularHours: number;
-  /** 給与計算用（30分切り捨て後・深夜） */
   nightHours: number;
   regularPay: number;
   nightPay: number;
@@ -90,10 +89,11 @@ export function calculateEmployeePayroll(
   hourlyRate: number,
   records: { clock_in: string; clock_out: string | null }[],
   year: number,
-  month: number
+  month: number,
+  settings: PayrollSettings = getPayrollSettings()
 ): PayrollResult {
-  const monthStart = startOfMonth(new Date(year, month - 1, 1));
-  const monthEnd = endOfMonth(monthStart);
+  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
+  const roundingMinutes = settings.roundingMinutes;
 
   let regularMinutes = 0;
   let nightMinutes = 0;
@@ -111,7 +111,7 @@ export function calculateEmployeePayroll(
     if (effectiveOut <= effectiveIn) continue;
 
     const segment = splitWorkMinutes(effectiveIn, effectiveOut);
-    if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes)) {
+    if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes, roundingMinutes)) {
       continue;
     }
     regularMinutes += segment.regularMinutes;
@@ -135,8 +135,8 @@ export function calculateEmployeePayroll(
   const actualNightHours = minutesToHours(nightMinutes);
   const actualTotalHours = minutesToHours(regularMinutes + nightMinutes);
   const overtimeHours = minutesToHours(overtimeMinutes);
-  const regularHours = roundMinutesToHalfHours(regularMinutes);
-  const nightHours = roundMinutesToHalfHours(nightMinutes);
+  const regularHours = roundMinutesToPayrollHours(regularMinutes, roundingMinutes);
+  const nightHours = roundMinutesToPayrollHours(nightMinutes, roundingMinutes);
   const regularPay = floorYen(regularHours * hourlyRate);
   const nightPay = floorYen(nightHours * hourlyRate * NIGHT_RATE_MULTIPLIER);
   const totalPay = floorYen(regularPay + nightPay);

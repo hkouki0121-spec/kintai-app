@@ -11,7 +11,9 @@
     "db:migrate:line-groups": "node scripts/apply-migration-via-management-api.mjs 20250604_line_groups.sql",
     "db:migrate:multi-company": "node scripts/apply-migration-via-management-api.mjs 20250608_multi_company.sql",
     "db:migrate:backups": "node scripts/apply-migration-via-management-api.mjs 20250609_backups.sql",
-    "db:migrate:employee-code-unique": "node scripts/apply-migration-via-management-api.mjs 20250610_employee_code_unique.sql"
+    "db:migrate:employee-code-unique": "node scripts/apply-migration-via-management-api.mjs 20250610_employee_code_unique.sql",
+    "db:migrate:employee-fields": "node scripts/apply-migration-via-management-api.mjs 20250611_employee_job_title_hired_at.sql",
+    "db:migrate:payroll-rounding": "node scripts/apply-migration-via-management-api.mjs 20250612_company_payroll_rounding.sql"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

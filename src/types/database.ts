@@ -4,6 +4,7 @@ export type Company = {
   id: string;
   name: string;
   is_active: boolean;
+  payroll_rounding_minutes?: 1 | 15 | 30;
   created_at: string;
 };
 

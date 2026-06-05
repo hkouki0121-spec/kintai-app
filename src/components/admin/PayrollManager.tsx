@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
+import type { PayrollDiagnostics } from "@/lib/payroll/diagnostics";
 
 type Props = {
   stores: Pick<Store, "id" | "name">[];
@@ -48,8 +49,67 @@ export function PayrollManager({
   const [loading, setLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [diagnostics, setDiagnostics] = useState<PayrollDiagnostics | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+
+  const loadPayroll = useCallback(
+    async (y: number, m: number, store: string) => {
+      let query = supabase
+        .from("monthly_payroll")
+        .select("*, employees(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
+        .eq("year", y)
+        .eq("month", m)
+        .order("total_pay", { ascending: false });
+
+      if (!isAllStores(store)) {
+        query = supabase
+          .from("monthly_payroll")
+          .select("*, employees!inner(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
+          .eq("year", y)
+          .eq("month", m)
+          .eq("employees.store_id", store)
+          .order("total_pay", { ascending: false });
+      }
+
+      const { data } = await query;
+      setPayroll((data as PayrollWithEmployee[]) ?? []);
+    },
+    [supabase]
+  );
+
+  const loadDiagnostics = useCallback(async (y: number, m: number, store: string) => {
+    const params = new URLSearchParams({ year: String(y), month: String(m), storeId: store });
+    const res = await fetch(`/api/admin/payroll/diagnostics?${params.toString()}`);
+    if (res.ok) {
+      setDiagnostics((await res.json()) as PayrollDiagnostics);
+    }
+  }, []);
+
+  const syncFromAttendance = useCallback(
+    async (y: number, m: number, store: string, silent = false) => {
+      if (!silent) setSyncing(true);
+      try {
+        const result = await runMonthlyPayroll(
+          supabase,
+          y,
+          m,
+          isAllStores(store) ? ALL_STORES_VALUE : store,
+          isSuperAdmin ? null : companyId
+        );
+        await Promise.all([loadPayroll(y, m, store), loadDiagnostics(y, m, store)]);
+        return result;
+      } finally {
+        if (!silent) setSyncing(false);
+      }
+    },
+    [supabase, isSuperAdmin, companyId, loadPayroll, loadDiagnostics]
+  );
+
+  useEffect(() => {
+    void syncFromAttendance(initialYear, initialMonth, initialStoreId, true);
+  }, [initialYear, initialMonth, initialStoreId, syncFromAttendance]);
 
   const summary = useMemo(() => {
     return payroll.reduce(
@@ -65,28 +125,6 @@ export function PayrollManager({
     );
   }, [payroll]);
 
-  const loadPayroll = async (y: number, m: number, store: string) => {
-    let query = supabase
-      .from("monthly_payroll")
-      .select("*, employees(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
-      .eq("year", y)
-      .eq("month", m)
-      .order("total_pay", { ascending: false });
-
-    if (!isAllStores(store)) {
-      query = supabase
-        .from("monthly_payroll")
-        .select("*, employees!inner(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
-        .eq("year", y)
-        .eq("month", m)
-        .eq("employees.store_id", store)
-        .order("total_pay", { ascending: false });
-    }
-
-    const { data } = await query;
-    setPayroll((data as PayrollWithEmployee[]) ?? []);
-  };
-
   const buildPayrollUrl = (y: string, m: string, store: string) => {
     const params = new URLSearchParams({ year: y, month: m });
     if (!isAllStores(store)) params.set("store", store);
@@ -96,7 +134,7 @@ export function PayrollManager({
   const handlePeriodChange = (e: React.FormEvent) => {
     e.preventDefault();
     router.push(buildPayrollUrl(year, month, storeId));
-    loadPayroll(Number(year), Number(month), storeId);
+    void syncFromAttendance(Number(year), Number(month), storeId, true);
   };
 
   const handleCalculate = async () => {
@@ -105,14 +143,7 @@ export function PayrollManager({
     try {
       const y = Number(year);
       const m = Number(month);
-      const result = await runMonthlyPayroll(
-        supabase,
-        y,
-        m,
-        isAllStores(storeId) ? ALL_STORES_VALUE : storeId,
-        isSuperAdmin ? null : companyId
-      );
-      await loadPayroll(y, m, storeId);
+      const result = await syncFromAttendance(y, m, storeId);
       const storeLabel = isAllStores(storeId) ? "全店舗" : stores.find((s) => s.id === storeId)?.name ?? "";
       if (result.errors.length > 0) {
         setMessage({
@@ -181,10 +212,13 @@ export function PayrollManager({
             表示
           </Button>
         </form>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button type="button" onClick={handleCalculate} disabled={loading}>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={handleCalculate} disabled={loading || syncing}>
             {loading ? "計算中…" : "再計算"}
           </Button>
+          {(syncing || loading) && (
+            <span className="text-xs text-slate-500">勤怠データを反映中…</span>
+          )}
           {canExportCsv && (
             <Button type="button" variant="secondary" onClick={handleDownloadCsv} disabled={csvLoading || payroll.length === 0}>
               {csvLoading ? "出力中…" : "給与CSV出力"}
@@ -194,6 +228,32 @@ export function PayrollManager({
       </div>
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
+
+      {diagnostics && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <h3 className="font-bold text-amber-900">勤怠と給与の確認</h3>
+          <p className="mt-1 text-sm text-amber-800">
+            勤怠履歴から自動反映 ／ 計算区切り: {diagnostics.roundingMinutes}分単位 ／ 勤怠あり{" "}
+            {diagnostics.summary.employeesWithAttendance}名
+            {diagnostics.summary.totalOpenShifts > 0 && ` ／ 退勤未打刻 ${diagnostics.summary.totalOpenShifts}件`}
+          </p>
+          {diagnostics.items.length > 0 ? (
+            <ul className="mt-3 space-y-2 text-sm text-amber-900">
+              {diagnostics.items.map((item) => (
+                <li key={item.employeeId} className="rounded-xl bg-white/70 px-3 py-2">
+                  <span className="font-medium">{item.employeeName}</span>
+                  <span className="text-amber-700">（{item.employeeCode}）</span>
+                  <span className="ml-2 text-amber-800">{item.issues.join("、")}</span>
+                </li>
+              ))}
+            </ul>
+          ) : diagnostics.summary.employeesWithAttendance > 0 ? (
+            <p className="mt-2 text-sm text-emerald-700">問題は検出されませんでした。表示が古い場合は「再計算」を実行してください。</p>
+          ) : (
+            <p className="mt-2 text-sm text-amber-800">この月の勤怠記録がありません。</p>
+          )}
+        </div>
+      )}
 
       {/* サマリーカード */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">

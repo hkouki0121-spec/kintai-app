@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyStoreAttendanceLine } from "@/lib/line/notify-store-attendance";
+import { syncEmployeePayrollAfterAttendance } from "@/lib/payroll/recalculate-employee";
 import { createServiceClient } from "@/lib/supabase/service";
 import { extractQrTokenFromScan, hashQrToken } from "@/lib/stores/qr-token";
 
@@ -95,6 +96,22 @@ export async function POST(request: Request) {
       timestamp: now,
       isQrClock: true,
     });
+
+    const { data: latestRecord } = await supabase
+      .from("attendance_records")
+      .select("clock_in, clock_out")
+      .eq("employee_id", employee.id)
+      .order("clock_in", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await syncEmployeePayrollAfterAttendance(
+      supabase,
+      employee.id,
+      latestRecord?.clock_in,
+      latestRecord?.clock_out,
+      now
+    );
 
     return NextResponse.json({
       ok: true,

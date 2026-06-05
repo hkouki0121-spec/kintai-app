@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS companies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  payroll_rounding_minutes INTEGER NOT NULL DEFAULT 30 CHECK (payroll_rounding_minutes IN (1, 15, 30)),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

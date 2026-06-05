@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import type { AttendanceCorrection } from "@/types/database";
 import { AttendanceAdminError } from "@/lib/attendance/admin-auth";
+import { syncEmployeePayrollAfterAttendance } from "@/lib/payroll/recalculate-employee";
 
 export type ApplyCorrectionParams = {
   recordId: string;
@@ -93,6 +94,15 @@ export async function applyAttendanceCorrection(
     });
   }
 
+  await syncEmployeePayrollAfterAttendance(
+    supabase,
+    record.employee_id,
+    record.clock_in,
+    record.clock_out,
+    nextClockIn,
+    nextClockOut
+  );
+
   return correction as AttendanceCorrection;
 }
 
@@ -171,6 +181,13 @@ export async function createManualAttendanceWithCorrection(
       companyId: record.company_id,
     });
   }
+
+  await syncEmployeePayrollAfterAttendance(
+    supabase,
+    record.employee_id,
+    record.clock_in,
+    record.clock_out
+  );
 
   return { recordId: record.id, correction: correction as AttendanceCorrection };
 }

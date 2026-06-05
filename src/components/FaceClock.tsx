@@ -184,6 +184,18 @@ export function FaceClock() {
     setShowQrModal(false);
   }, [mode]);
 
+  const syncPayroll = async (employeeId: string) => {
+    try {
+      await fetch("/api/kiosk/sync-payroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId }),
+      });
+    } catch {
+      // 給与同期失敗は打刻成功を妨げない
+    }
+  };
+
   const runClockIn = async (identified: MatchResult, employee: EmployeeRow) => {
     const now = new Date().toISOString();
     await clockIn(supabase, {
@@ -192,6 +204,7 @@ export function FaceClock() {
       companyId: employee.company_id,
       clockIn: now,
     });
+    void syncPayroll(identified.employeeId);
     notifyLineAttendance({
       type: "clock_in",
       employeeId: identified.employeeId,
@@ -211,6 +224,7 @@ export function FaceClock() {
       employeeId: identified.employeeId,
       clockOut: now,
     });
+    void syncPayroll(identified.employeeId);
     notifyLineAttendance({
       type: "clock_out",
       employeeId: identified.employeeId,
