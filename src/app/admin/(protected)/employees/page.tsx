@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeManager } from "@/components/admin/EmployeeManager";
+import { findDuplicateEmployeeCodes } from "@/lib/employees/duplicate-code";
 import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
 import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
 import type { EmployeeWithStore } from "@/types/database";
@@ -8,24 +9,25 @@ export default async function EmployeesPage() {
   const supabase = await createClient();
   const [{ data: allStores }, { data }] = await Promise.all([
     supabase.from("stores").select("id, name, is_active, company_id").order("name"),
-    supabase
-      .from("employees")
-      .select("*, stores(id, name)")
-      .order("created_at", { ascending: false }),
+    supabase.from("employees").select("*, stores(id, name)").order("name"),
   ]);
   const stores = allStores ?? [];
+  const employees = (data as EmployeeWithStore[]) ?? [];
+  const duplicateCodes = findDuplicateEmployeeCodes(employees);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">従業員一覧</h2>
         <p className="text-sm text-slate-600">
-          所属店舗・時給の設定と顔写真の管理（最大{MAX_FACE_DESCRIPTORS}枚・一致率{FACE_MATCH_MIN_RATE}%）
+          店舗ごとに従業員を表示します。所属店舗・時給の設定と顔写真の管理（最大
+          {MAX_FACE_DESCRIPTORS}枚・一致率{FACE_MATCH_MIN_RATE}%）
         </p>
       </div>
       <EmployeeManager
-        initialEmployees={(data as EmployeeWithStore[]) ?? []}
+        initialEmployees={employees}
         stores={stores}
+        duplicateCodes={duplicateCodes}
       />
     </div>
   );
