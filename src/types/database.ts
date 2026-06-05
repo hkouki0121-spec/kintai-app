@@ -129,7 +129,7 @@ export type EmployeeWithAttendance = AttendanceRecord & {
 };
 
 export type PayrollWithEmployee = MonthlyPayroll & {
-  employees: Pick<Employee, "id" | "name" | "employee_code" | "store_id"> & {
+  employees: Pick<Employee, "id" | "name" | "employee_code" | "hourly_rate" | "store_id"> & {
     stores: Pick<Store, "id" | "name"> | null;
   };
 };

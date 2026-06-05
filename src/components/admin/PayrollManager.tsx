@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
 import { downloadPayrollPdf } from "@/lib/pdf/generate-payroll-pdf";
-import { downloadPayrollCsv } from "@/lib/csv/export-payroll-csv";
+import { buildPayrollCsvFilename } from "@/lib/csv/build-payroll-csv";
 import { isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import type { PayrollWithEmployee, Store } from "@/types/database";
@@ -40,13 +40,15 @@ export function PayrollManager({
   initialYear,
   initialMonth,
 }: Props) {
-  const { companyId, isSuperAdmin } = useAdminCompany();
+  const { companyId, isSuperAdmin, role } = useAdminCompany();
+  const canExportCsv = !isSuperAdmin && role === "company_admin";
   const [year, setYear] = useState(String(initialYear));
   const [month, setMonth] = useState(String(initialMonth));
   const [storeId, setStoreId] = useState(initialStoreId);
   const [payroll, setPayroll] = useState(initialPayroll);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [csvLoading, setCsvLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const router = useRouter();
   const supabase = createClient();
@@ -139,17 +141,51 @@ export function PayrollManager({
     }
   };
 
-  const handleDownloadCsv = () => {
+  const handleDownloadCsv = async () => {
     if (payroll.length === 0) {
       setMessage({ type: "error", text: "給与データがありません。先に給与を計算してください。" });
       return;
     }
+
+    setCsvLoading(true);
     setMessage(null);
+
     try {
-      downloadPayrollCsv(payroll, Number(year), Number(month));
-      setMessage({ type: "success", text: "給与CSVをダウンロードしました。" });
+      const params = new URLSearchParams({
+        storeId: storeId,
+        year: year,
+        month: month,
+      });
+      const response = await fetch(`/api/admin/payroll/csv?${params.toString()}`);
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(
+          data.error === "出力する給与データがありません"
+            ? data.error
+            : "CSV出力に失敗しました。時間を置いて再度お試しください。"
+        );
+      }
+
+      const blob = await response.blob();
+      const storeLabel = isAllStores(storeId)
+        ? "全店舗"
+        : stores.find((store) => store.id === storeId)?.name ?? "店舗";
+      const filename = buildPayrollCsvFilename(Number(year), Number(month), storeLabel);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage({ type: "success", text: "給与CSVを出力しました" });
     } catch (e) {
-      setMessage({ type: "error", text: (e as Error).message });
+      setMessage({
+        type: "error",
+        text: (e as Error).message || "CSV出力に失敗しました。時間を置いて再度お試しください。",
+      });
+    } finally {
+      setCsvLoading(false);
     }
   };
 
@@ -197,14 +233,16 @@ export function PayrollManager({
           >
             {pdfLoading ? "PDF作成中…" : "給与明細PDFを出力"}
           </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleDownloadCsv}
-            disabled={payroll.length === 0}
-          >
-            給与CSVを出力
-          </Button>
+          {canExportCsv && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleDownloadCsv}
+              disabled={csvLoading || payroll.length === 0}
+            >
+              {csvLoading ? "CSV出力中…" : "給与CSVを出力"}
+            </Button>
+          )}
         </form>
         <p className="mt-2 text-xs text-slate-500">
           「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）。
