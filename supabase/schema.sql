@@ -143,6 +143,21 @@ CREATE TABLE IF NOT EXISTS monthly_payroll (
 CREATE INDEX IF NOT EXISTS idx_payroll_period ON monthly_payroll(year, month);
 CREATE INDEX IF NOT EXISTS idx_payroll_company ON monthly_payroll(company_id);
 
+-- バックアップ実行履歴
+CREATE TABLE IF NOT EXISTS backup_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  backup_date DATE NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
+  files JSONB NOT NULL DEFAULT '[]'::jsonb,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, backup_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_runs_company_date
+  ON backup_runs(company_id, backup_date DESC);
+
 -- updated_at トリガー
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -207,6 +222,7 @@ ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_payroll ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backup_runs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY companies_select ON companies
   FOR SELECT TO authenticated
@@ -280,6 +296,13 @@ CREATE POLICY company_payroll ON monthly_payroll
   FOR ALL TO authenticated
   USING (public.auth_can_access_company(company_id))
   WITH CHECK (public.auth_can_access_company(company_id));
+
+CREATE POLICY backup_runs_select ON backup_runs
+  FOR SELECT TO authenticated
+  USING (public.auth_can_access_company(company_id));
+
+GRANT SELECT ON backup_runs TO authenticated;
+GRANT ALL ON backup_runs TO service_role;
 
 CREATE POLICY anon_read_active_stores ON stores
   FOR SELECT TO anon USING (is_active = true);

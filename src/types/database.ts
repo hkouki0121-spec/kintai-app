@@ -108,6 +108,16 @@ export type MonthlyPayroll = {
   calculated_at: string;
 };
 
+export type BackupRun = {
+  id: string;
+  company_id: string;
+  backup_date: string;
+  status: "success" | "failed";
+  files: string[] | unknown;
+  error_message: string | null;
+  created_at: string;
+};
+
 export type EmployeeWithStore = Employee & {
   stores: Pick<Store, "id" | "name"> | null;
 };

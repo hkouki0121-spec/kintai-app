@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/monthly-payroll",
       "schedule": "0 15 28-31 * *"
+    },
+    {
+      "path": "/api/cron/daily-backup",
+      "schedule": "0 18 * * *"
     }
   ]
 }
