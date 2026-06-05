@@ -8,21 +8,17 @@ import {
   type DuplicateEmployeeCodeGroup,
 } from "@/lib/employees/duplicate-code";
 import { groupEmployeesByStore } from "@/lib/employees/group-by-store";
+import { downloadEmployeesCsv } from "@/lib/csv/export-employees-csv";
 import type { EmployeeWithStore, Store } from "@/types/database";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
-import { StoreSelect } from "@/components/admin/StoreSelect";
 import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
 import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
-import { countFaceDescriptors } from "@/lib/face/descriptors";
-import { MAX_FACE_DESCRIPTORS } from "@/lib/face/registration-steps";
-import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
-import { formatYen } from "@/lib/format";
 import type { FaceDescriptorEntry } from "@/types/database";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
+import { formatJstDate, formatYen } from "@/lib/format";
 
 type DeleteTarget = {
   employee: EmployeeWithStore;
@@ -36,143 +32,56 @@ type Props = {
   duplicateCodes: DuplicateEmployeeCodeGroup[];
 };
 
-function EmployeeCard({
-  emp,
-  stores,
-  expandedId,
-  onExpand,
-  onFaceRegister,
-  onToggleActive,
-  onDelete,
-  onStoreUpdate,
-  onRateUpdate,
-  onCodeUpdate,
-}: {
-  emp: EmployeeWithStore;
-  stores: Pick<Store, "id" | "name">[];
-  expandedId: string | null;
-  onExpand: (id: string | null) => void;
-  onFaceRegister: (emp: EmployeeWithStore) => void;
-  onToggleActive: (emp: EmployeeWithStore) => void;
-  onDelete: (emp: EmployeeWithStore) => void;
-  onStoreUpdate: (id: string, storeId: string) => Promise<void>;
-  onRateUpdate: (id: string, rate: string) => Promise<void>;
-  onCodeUpdate: (id: string, code: string) => Promise<void>;
-}) {
-  const [codeDraft, setCodeDraft] = useState(emp.employee_code);
-
-  return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-slate-900">
-            {emp.name}
-            {!emp.is_active && (
-              <span className="ml-2 rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
-                無効
-              </span>
-            )}
-          </p>
-          <p className="text-sm text-slate-500">コード: {emp.employee_code}</p>
-          <p className="text-sm text-slate-600">
-            時給: {formatYen(Number(emp.hourly_rate))}
-            <span className="text-slate-400">（22時以降 ×1.25）</span>
-          </p>
-          <p className="mt-1 text-sm">
-            登録顔写真:{" "}
-            {countFaceDescriptors(emp.face_descriptor) > 0 ? (
-              <span className="font-medium text-emerald-700">
-                {countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚
-              </span>
-            ) : (
-              <span className="text-amber-700">0/{MAX_FACE_DESCRIPTORS}枚（未登録）</span>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => onFaceRegister(emp)}>
-            顔写真管理
-          </Button>
-          <Button variant="ghost" onClick={() => onExpand(expandedId === emp.id ? null : emp.id)}>
-            {expandedId === emp.id ? "閉じる" : "編集"}
-          </Button>
-          <Button variant="secondary" onClick={() => onToggleActive(emp)}>
-            {emp.is_active ? "無効化" : "有効化"}
-          </Button>
-          <Button variant="danger" onClick={() => onDelete(emp)}>
-            削除
-          </Button>
-        </div>
-      </div>
-
-      {expandedId === emp.id && (
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <p className="mb-4 text-sm text-slate-600">
-            登録顔写真: {countFaceDescriptors(emp.face_descriptor)}/{MAX_FACE_DESCRIPTORS}枚
-            ／ 一致率閾値: {FACE_MATCH_MIN_RATE}%
-          </p>
-          <label className="mb-1 block text-sm text-slate-600">社員コード</label>
-          <Input
-            value={codeDraft}
-            onChange={(e) => setCodeDraft(e.target.value)}
-            onBlur={() => {
-              if (codeDraft.trim() !== emp.employee_code) {
-                void onCodeUpdate(emp.id, codeDraft);
-              }
-            }}
-            className="mb-4 max-w-xs"
-          />
-          <label className="mb-1 block text-sm text-slate-600">所属店舗</label>
-          <select
-            defaultValue={emp.store_id}
-            onChange={(e) => onStoreUpdate(emp.id, e.target.value)}
-            className="mb-4 w-full max-w-xs rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-          >
-            {stores.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </select>
-          <label className="mb-1 block text-sm text-slate-600">時給を変更</label>
-          <div className="flex gap-2">
-            <Input
-              type="number"
-              min={1}
-              defaultValue={emp.hourly_rate}
-              onBlur={(e) => onRateUpdate(emp.id, e.target.value)}
-            />
-          </div>
-        </div>
-      )}
-    </Card>
+function StatusBadge({ active }: { active: boolean }) {
+  return active ? (
+    <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+      在籍中
+    </span>
+  ) : (
+    <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+      無効
+    </span>
   );
+}
+
+function getHireDate(emp: EmployeeWithStore): string {
+  return formatJstDate(emp.hired_at ?? emp.created_at);
 }
 
 export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Props) {
   const { companyId } = useAdminCompany();
   const [employees, setEmployees] = useState(initialEmployees);
   const [filterStoreId, setFilterStoreId] = useState(ALL_STORES_VALUE);
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const activeStores = stores.filter((store) => store.is_active);
-  const [storeId, setStoreId] = useState(activeStores[0]?.id ?? stores[0]?.id ?? "");
-  const [hourlyRate, setHourlyRate] = useState("1000");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editTarget, setEditTarget] = useState<EmployeeWithStore | null>(null);
   const [faceRegisterTarget, setFaceRegisterTarget] = useState<EmployeeWithStore | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const supabase = createClient();
 
+  const activeStores = stores.filter((store) => store.is_active);
   const filterStores = useMemo(
     () => stores.filter((store) => store.is_active).sort((a, b) => a.name.localeCompare(b.name, "ja")),
     [stores]
   );
 
+  const filteredEmployees = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return employees;
+    return employees.filter(
+      (emp) =>
+        emp.name.toLowerCase().includes(query) ||
+        emp.employee_code.toLowerCase().includes(query)
+    );
+  }, [employees, search]);
+
   const groupedEmployees = useMemo(
-    () => groupEmployeesByStore(employees, stores, filterStoreId),
-    [employees, stores, filterStoreId]
+    () => groupEmployeesByStore(filteredEmployees, stores, filterStoreId),
+    [filteredEmployees, stores, filterStoreId]
   );
 
   const refresh = async () => {
@@ -183,102 +92,13 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
     setEmployees((data as EmployeeWithStore[]) ?? []);
   };
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage(null);
-    if (!storeId) {
-      setMessage("店舗を先に登録してください");
-      return;
-    }
-    const selectedStore = stores.find((store) => store.id === storeId);
-    const targetCompanyId = selectedStore?.company_id ?? companyId;
-    if (!targetCompanyId) {
-      setMessage("会社が特定できません");
-      return;
-    }
-
-    const trimmedCode = code.trim();
-    try {
-      await assertUniqueEmployeeCode(supabase, targetCompanyId, trimmedCode);
-    } catch (error) {
-      setMessage((error as Error).message);
-      return;
-    }
-
-    const { error } = await supabase.from("employees").insert({
-      name: name.trim(),
-      employee_code: trimmedCode,
-      store_id: storeId,
-      company_id: targetCompanyId,
-      hourly_rate: Number(hourlyRate),
+  const toggleStore = (storeId: string) => {
+    setExpandedStores((prev) => {
+      const next = new Set(prev);
+      if (next.has(storeId)) next.delete(storeId);
+      else next.add(storeId);
+      return next;
     });
-    if (error) {
-      setMessage(getEmployeeCodeErrorMessage(error));
-      return;
-    }
-    setName("");
-    setCode("");
-    setHourlyRate("1000");
-    setMessage("従業員を追加しました");
-    await refresh();
-  };
-
-  const handleRateUpdate = async (id: string, rate: string) => {
-    const { error } = await supabase
-      .from("employees")
-      .update({ hourly_rate: Number(rate) })
-      .eq("id", id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    await refresh();
-  };
-
-  const handleCodeUpdate = async (id: string, nextCode: string) => {
-    const trimmedCode = nextCode.trim();
-    if (!trimmedCode) {
-      setMessage("社員コードを入力してください");
-      return;
-    }
-
-    const employee = employees.find((item) => item.id === id);
-    if (!employee || trimmedCode === employee.employee_code) return;
-
-    try {
-      await assertUniqueEmployeeCode(supabase, employee.company_id, trimmedCode, id);
-    } catch (error) {
-      setMessage((error as Error).message);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("employees")
-      .update({ employee_code: trimmedCode })
-      .eq("id", id);
-
-    if (error) {
-      setMessage(getEmployeeCodeErrorMessage(error));
-      return;
-    }
-
-    await refresh();
-  };
-
-  const handleStoreUpdate = async (id: string, newStoreId: string) => {
-    const selectedStore = stores.find((store) => store.id === newStoreId);
-    const { error } = await supabase
-      .from("employees")
-      .update({
-        store_id: newStoreId,
-        company_id: selectedStore?.company_id,
-      })
-      .eq("id", id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    await refresh();
   };
 
   const handleToggleActive = async (emp: EmployeeWithStore) => {
@@ -289,16 +109,9 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
   const handleDeleteClick = async (emp: EmployeeWithStore) => {
     setMessage(null);
     const [{ count: attendanceCount }, { count: payrollCount }] = await Promise.all([
-      supabase
-        .from("attendance_records")
-        .select("*", { count: "exact", head: true })
-        .eq("employee_id", emp.id),
-      supabase
-        .from("monthly_payroll")
-        .select("*", { count: "exact", head: true })
-        .eq("employee_id", emp.id),
+      supabase.from("attendance_records").select("*", { count: "exact", head: true }).eq("employee_id", emp.id),
+      supabase.from("monthly_payroll").select("*", { count: "exact", head: true }).eq("employee_id", emp.id),
     ]);
-
     setDeleteTarget({
       employee: emp,
       attendanceCount: attendanceCount ?? 0,
@@ -309,24 +122,13 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    setMessage(null);
-
-    const { error } = await supabase
-      .from("employees")
-      .delete()
-      .eq("id", deleteTarget.employee.id);
-
+    const { error } = await supabase.from("employees").delete().eq("id", deleteTarget.employee.id);
     setDeleting(false);
-
     if (error) {
       setMessage(error.message);
       return;
     }
-
     setDeleteTarget(null);
-    if (expandedId === deleteTarget.employee.id) {
-      setExpandedId(null);
-    }
     setMessage(`${deleteTarget.employee.name} を削除しました`);
     await refresh();
   };
@@ -336,28 +138,32 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
       .from("employees")
       .update({ face_descriptor: descriptors.length > 0 ? descriptors : null })
       .eq("id", id);
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
     await refresh();
-    setFaceRegisterTarget((current) =>
-      current?.id === id
-        ? { ...current, face_descriptor: descriptors.length > 0 ? descriptors : null }
-        : current
-    );
+  };
+
+  const handleExportCsv = () => {
+    const flat = groupedEmployees.flatMap((g) => g.employees);
+    if (flat.length === 0) {
+      setMessage("出力する従業員がありません");
+      return;
+    }
+    downloadEmployeesCsv(flat);
+    setMessage("CSVを出力しました");
   };
 
   const isSuccessMessage =
     message?.includes("追加") ||
-    message?.includes("登録") ||
+    message?.includes("更新") ||
     message?.includes("削除しました") ||
+    message?.includes("CSV") ||
     message?.includes("顔写真");
 
   return (
-    <div className="space-y-6">
+    <div className="pb-24 md:pb-0">
       {duplicateCodes.length > 0 && (
         <Alert type="error">
-          <p className="font-medium">社員コードの重複が検出されました。DB制約追加前に修正してください。</p>
+          <p className="font-medium">社員コードの重複が検出されました。</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {duplicateCodes.map((group) => (
               <li key={`${group.companyId}:${group.employeeCode}`}>
@@ -368,142 +174,394 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
         </Alert>
       )}
 
-      <Card>
-        <h3 className="font-semibold text-slate-900">顔認証設定</h3>
-        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-slate-500">一致率閾値</dt>
-            <dd className="font-semibold text-slate-900">{FACE_MATCH_MIN_RATE}%</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">最大登録枚数</dt>
-            <dd className="font-semibold text-slate-900">{MAX_FACE_DESCRIPTORS}枚 / 従業員</dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-slate-500">認証方式</dt>
-            <dd className="text-slate-700">
-              登録済み写真すべてと比較し、最も高い一致率を採用（{FACE_MATCH_MIN_RATE}%以上で打刻成功）
-            </dd>
-          </div>
-        </dl>
-      </Card>
-
-      <Card>
-        <h3 className="font-semibold">新規従業員</h3>
-        {activeStores.length === 0 ? (
-          <p className="mt-3 text-sm text-amber-700">
-            店舗が未登録です。先に店舗管理から店舗を追加してください。
-          </p>
-        ) : (
-          <form onSubmit={handleAdd} className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">氏名</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+      {/* 検索バー（スマホ固定） */}
+      <div className="sticky top-14 z-20 -mx-4 mb-6 border-b border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:rounded-2xl md:border md:bg-white md:px-5 md:py-4 md:shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">検索</label>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="従業員名・社員コード"
+              />
             </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">社員コード</label>
-              <Input value={code} onChange={(e) => setCode(e.target.value)} required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">所属店舗</label>
+            <div className="w-full sm:w-48">
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">店舗フィルター</label>
               <select
-                value={storeId}
-                onChange={(e) => setStoreId(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                required
+                value={filterStoreId}
+                onChange={(e) => setFilterStoreId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               >
-                {activeStores.map((store) => (
+                <option value={ALL_STORES_VALUE}>すべての店舗</option>
+                {filterStores.map((store) => (
                   <option key={store.id} value={store.id}>
                     {store.name}
                   </option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">時給（円）</label>
-              <Input
-                type="number"
-                min={1}
-                value={hourlyRate}
-                onChange={(e) => setHourlyRate(e.target.value)}
-                required
-              />
-            </div>
-            <div className="flex items-end sm:col-span-2">
-              <Button type="submit" fullWidth>
-                追加
-              </Button>
-            </div>
-          </form>
-        )}
-        {message && (
-          <div className="mt-3">
-            <Alert type={isSuccessMessage ? "success" : "error"}>{message}</Alert>
           </div>
-        )}
-      </Card>
+          <div className="hidden gap-2 md:flex">
+            <Button variant="secondary" onClick={handleExportCsv}>
+              CSV出力
+            </Button>
+            <Button onClick={() => setShowAddModal(true)}>従業員追加</Button>
+          </div>
+        </div>
+      </div>
 
-      <Card>
-        <StoreSelect
-          stores={filterStores}
-          value={filterStoreId}
-          onChange={setFilterStoreId}
-          label="店舗フィルター"
-        />
-      </Card>
+      {message && (
+        <div className="mb-4">
+          <Alert type={isSuccessMessage ? "success" : "error"}>{message}</Alert>
+        </div>
+      )}
 
-      <div className="space-y-8">
+      {/* PC: テーブル */}
+      <div className="hidden space-y-8 md:block">
         {groupedEmployees.map((group) => (
-          <section key={group.storeId} className="space-y-3">
-            <h3 className="border-b border-slate-200 pb-2 text-lg font-bold text-slate-900">
+          <section key={group.storeId}>
+            <h3 className="mb-4 text-lg font-bold text-slate-900">
               {group.storeName}
+              <span className="ml-2 text-sm font-normal text-slate-500">（{group.employees.length}名）</span>
             </h3>
-            <div className="space-y-3">
-              {group.employees.map((emp) => (
-                <EmployeeCard
-                  key={`${emp.id}-${emp.employee_code}`}
-                  emp={emp}
-                  stores={stores}
-                  expandedId={expandedId}
-                  onExpand={setExpandedId}
-                  onFaceRegister={setFaceRegisterTarget}
-                  onToggleActive={handleToggleActive}
-                  onDelete={handleDeleteClick}
-                  onStoreUpdate={handleStoreUpdate}
-                  onRateUpdate={handleRateUpdate}
-                  onCodeUpdate={handleCodeUpdate}
-                />
-              ))}
+            <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+                    <th className="px-5 py-3 font-medium">店舗名</th>
+                    <th className="px-5 py-3 font-medium">社員コード</th>
+                    <th className="px-5 py-3 font-medium">従業員名</th>
+                    <th className="px-5 py-3 font-medium">役職</th>
+                    <th className="px-5 py-3 font-medium">時給</th>
+                    <th className="px-5 py-3 font-medium">入社日</th>
+                    <th className="px-5 py-3 font-medium">ステータス</th>
+                    <th className="px-5 py-3 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.employees.map((emp) => (
+                    <tr
+                      key={emp.id}
+                      className={`border-b border-slate-50 last:border-0 ${!emp.is_active ? "bg-slate-50/80 text-slate-500" : ""}`}
+                    >
+                      <td className="px-5 py-4">{group.storeName}</td>
+                      <td className="px-5 py-4 font-mono text-xs">{emp.employee_code}</td>
+                      <td className="px-5 py-4 font-medium text-slate-900">{emp.name}</td>
+                      <td className="px-5 py-4">{emp.job_title ?? "—"}</td>
+                      <td className="px-5 py-4">{formatYen(Number(emp.hourly_rate))}</td>
+                      <td className="px-5 py-4">{getHireDate(emp)}</td>
+                      <td className="px-5 py-4">
+                        <StatusBadge active={emp.is_active} />
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex gap-2">
+                          <Button variant="ghost" className="!px-3 !py-1.5 text-xs" onClick={() => setEditTarget(emp)}>
+                            編集
+                          </Button>
+                          <Button variant="danger" className="!px-3 !py-1.5 text-xs" onClick={() => handleDeleteClick(emp)}>
+                            削除
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
         ))}
-
-        {faceRegisterTarget && (
-          <FaceRegisterModal
-            employeeId={faceRegisterTarget.id}
-            employeeName={faceRegisterTarget.name}
-            faceDescriptor={faceRegisterTarget.face_descriptor}
-            onUpdate={handleFaceUpdate}
-            onClose={() => setFaceRegisterTarget(null)}
-          />
-        )}
-        {deleteTarget && (
-          <EmployeeDeleteConfirmModal
-            employeeName={deleteTarget.employee.name}
-            attendanceCount={deleteTarget.attendanceCount}
-            payrollCount={deleteTarget.payrollCount}
-            deleting={deleting}
-            onConfirm={handleDeleteConfirm}
-            onClose={() => !deleting && setDeleteTarget(null)}
-          />
-        )}
         {groupedEmployees.length === 0 && (
-          <p className="text-center text-sm text-slate-500">
-            {filterStoreId === ALL_STORES_VALUE
-              ? "従業員が登録されていません"
-              : "この店舗に従業員が登録されていません"}
-          </p>
+          <p className="py-12 text-center text-sm text-slate-500">該当する従業員がいません</p>
         )}
+      </div>
+
+      {/* スマホ: アコーディオン */}
+      <div className="space-y-3 md:hidden">
+        {groupedEmployees.map((group) => {
+          const open = expandedStores.has(group.storeId) || groupedEmployees.length === 1;
+          return (
+            <div key={group.storeId} className="overflow-hidden rounded-2xl bg-white shadow-sm">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-4 py-4 text-left"
+                onClick={() => toggleStore(group.storeId)}
+              >
+                <span className="font-bold text-slate-900">
+                  {group.storeName}
+                  <span className="ml-2 text-sm font-normal text-slate-500">（{group.employees.length}名）</span>
+                </span>
+                <span className="text-slate-400">{open ? "▲" : "▼"}</span>
+              </button>
+              {open && (
+                <div className="divide-y divide-slate-100 border-t border-slate-100">
+                  {group.employees.map((emp) => (
+                    <div
+                      key={emp.id}
+                      className={`px-4 py-4 ${!emp.is_active ? "bg-slate-50 text-slate-500" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-mono text-xs text-slate-500">{emp.employee_code}</p>
+                          <p className="mt-0.5 font-semibold text-slate-900">{emp.name}</p>
+                          <p className="mt-1 text-sm">{emp.job_title ?? "—"}</p>
+                          <p className="mt-1 text-sm">時給 {formatYen(Number(emp.hourly_rate))}</p>
+                          <div className="mt-2">
+                            <StatusBadge active={emp.is_active} />
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-2">
+                          <Button variant="ghost" className="!px-3 !py-1.5 text-xs" onClick={() => setEditTarget(emp)}>
+                            編集
+                          </Button>
+                          <Button variant="danger" className="!px-3 !py-1.5 text-xs" onClick={() => handleDeleteClick(emp)}>
+                            削除
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {groupedEmployees.length === 0 && (
+          <p className="py-12 text-center text-sm text-slate-500">該当する従業員がいません</p>
+        )}
+      </div>
+
+      {/* スマホ: 下部固定ボタン */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-4 backdrop-blur md:hidden">
+        <Button fullWidth onClick={() => setShowAddModal(true)}>
+          従業員追加
+        </Button>
+      </div>
+
+      {showAddModal && (
+        <EmployeeFormModal
+          title="従業員追加"
+          stores={activeStores}
+          saving={saving}
+          onClose={() => !saving && setShowAddModal(false)}
+          onSave={async (data) => {
+            setSaving(true);
+            setMessage(null);
+            const selectedStore = stores.find((s) => s.id === data.storeId);
+            const targetCompanyId = selectedStore?.company_id ?? companyId;
+            if (!targetCompanyId) {
+              setMessage("会社が特定できません");
+              setSaving(false);
+              return;
+            }
+            try {
+              await assertUniqueEmployeeCode(supabase, targetCompanyId, data.code.trim());
+            } catch (error) {
+              setMessage((error as Error).message);
+              setSaving(false);
+              return;
+            }
+            const { error } = await supabase.from("employees").insert({
+              name: data.name.trim(),
+              employee_code: data.code.trim(),
+              store_id: data.storeId,
+              company_id: targetCompanyId,
+              hourly_rate: Number(data.hourlyRate),
+              job_title: data.jobTitle.trim() || null,
+              hired_at: data.hiredAt || null,
+            });
+            setSaving(false);
+            if (error) {
+              setMessage(getEmployeeCodeErrorMessage(error));
+              return;
+            }
+            setShowAddModal(false);
+            setMessage("従業員を追加しました");
+            await refresh();
+          }}
+        />
+      )}
+
+      {editTarget && (
+        <EmployeeFormModal
+          title="従業員編集"
+          stores={stores}
+          employee={editTarget}
+          saving={saving}
+          onClose={() => !saving && setEditTarget(null)}
+          onFaceRegister={() => {
+            setFaceRegisterTarget(editTarget);
+            setEditTarget(null);
+          }}
+          onToggleActive={() => handleToggleActive(editTarget)}
+          onSave={async (data) => {
+            setSaving(true);
+            setMessage(null);
+            const trimmedCode = data.code.trim();
+            try {
+              await assertUniqueEmployeeCode(supabase, editTarget.company_id, trimmedCode, editTarget.id);
+            } catch (error) {
+              setMessage((error as Error).message);
+              setSaving(false);
+              return;
+            }
+            const selectedStore = stores.find((s) => s.id === data.storeId);
+            const { error } = await supabase
+              .from("employees")
+              .update({
+                name: data.name.trim(),
+                employee_code: trimmedCode,
+                store_id: data.storeId,
+                company_id: selectedStore?.company_id,
+                hourly_rate: Number(data.hourlyRate),
+                job_title: data.jobTitle.trim() || null,
+                hired_at: data.hiredAt || null,
+              })
+              .eq("id", editTarget.id);
+            setSaving(false);
+            if (error) {
+              setMessage(getEmployeeCodeErrorMessage(error));
+              return;
+            }
+            setEditTarget(null);
+            setMessage("従業員情報を更新しました");
+            await refresh();
+          }}
+        />
+      )}
+
+      {faceRegisterTarget && (
+        <FaceRegisterModal
+          employeeId={faceRegisterTarget.id}
+          employeeName={faceRegisterTarget.name}
+          faceDescriptor={faceRegisterTarget.face_descriptor}
+          onUpdate={handleFaceUpdate}
+          onClose={() => setFaceRegisterTarget(null)}
+        />
+      )}
+
+      {deleteTarget && (
+        <EmployeeDeleteConfirmModal
+          employeeName={deleteTarget.employee.name}
+          attendanceCount={deleteTarget.attendanceCount}
+          payrollCount={deleteTarget.payrollCount}
+          deleting={deleting}
+          onConfirm={handleDeleteConfirm}
+          onClose={() => !deleting && setDeleteTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+type FormData = {
+  name: string;
+  code: string;
+  storeId: string;
+  hourlyRate: string;
+  jobTitle: string;
+  hiredAt: string;
+};
+
+function EmployeeFormModal({
+  title,
+  stores,
+  employee,
+  saving,
+  onClose,
+  onSave,
+  onFaceRegister,
+  onToggleActive,
+}: {
+  title: string;
+  stores: Pick<Store, "id" | "name" | "is_active" | "company_id">[];
+  employee?: EmployeeWithStore;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (data: FormData) => Promise<void>;
+  onFaceRegister?: () => void;
+  onToggleActive?: () => void;
+}) {
+  const activeStores = stores.filter((s) => s.is_active);
+  const [name, setName] = useState(employee?.name ?? "");
+  const [code, setCode] = useState(employee?.employee_code ?? "");
+  const [storeId, setStoreId] = useState(employee?.store_id ?? activeStores[0]?.id ?? "");
+  const [hourlyRate, setHourlyRate] = useState(String(employee?.hourly_rate ?? "1000"));
+  const [jobTitle, setJobTitle] = useState(employee?.job_title ?? "");
+  const [hiredAt, setHiredAt] = useState(employee?.hired_at?.slice(0, 10) ?? "");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white p-6 sm:max-w-lg sm:rounded-2xl">
+        <div className="mb-5 flex items-center justify-between">
+          <h3 className="text-xl font-bold text-slate-900">{title}</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            ✕
+          </button>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onSave({ name, code, storeId, hourlyRate, jobTitle, hiredAt });
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="mb-1 block text-sm text-slate-600">氏名</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-600">社員コード</label>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} required />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-600">役職</label>
+            <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ホール、キッチン など" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-600">所属店舗</label>
+            <select
+              value={storeId}
+              onChange={(e) => setStoreId(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              required
+            >
+              {activeStores.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm text-slate-600">時給（円）</label>
+              <Input type="number" min={1} value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} required />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-600">入社日</label>
+              <Input type="date" value={hiredAt} onChange={(e) => setHiredAt(e.target.value)} />
+            </div>
+          </div>
+          {employee && onFaceRegister && (
+            <Button type="button" variant="secondary" fullWidth onClick={onFaceRegister}>
+              顔写真管理
+            </Button>
+          )}
+          {employee && onToggleActive && (
+            <Button type="button" variant="secondary" fullWidth onClick={onToggleActive}>
+              {employee.is_active ? "無効化" : "有効化"}
+            </Button>
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button type="button" variant="ghost" fullWidth onClick={onClose} disabled={saving}>
+              キャンセル
+            </Button>
+            <Button type="submit" fullWidth disabled={saving || (!employee && activeStores.length === 0)}>
+              {saving ? "保存中…" : "保存"}
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );

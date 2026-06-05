@@ -32,3 +32,11 @@ export function formatActualHours(hours: number): string {
 export function formatPayrollHours(hours: number): string {
   return `${hours.toFixed(2)}時間`;
 }
+
+/** 時間を H:MM 形式で表示（例: 176.5 → "176:30"） */
+export function formatHoursClock(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}

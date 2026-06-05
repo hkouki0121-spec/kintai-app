@@ -1,18 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { runMonthlyPayroll } from "@/lib/payroll/run-monthly";
-import { downloadPayrollPdf } from "@/lib/pdf/generate-payroll-pdf";
 import { buildPayrollCsvFilename } from "@/lib/csv/build-payroll-csv";
 import { isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import type { PayrollWithEmployee, Store } from "@/types/database";
-import { formatActualHours, formatYen } from "@/lib/format";
-import { HoursDisplay } from "@/components/admin/HoursDisplay";
+import { formatHoursClock, formatYen } from "@/lib/format";
 import { StoreSelect } from "@/components/admin/StoreSelect";
-import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
@@ -26,10 +23,12 @@ type Props = {
   initialMonth: number;
 };
 
-function getTotalHours(row: PayrollWithEmployee): number {
-  if (row.actual_total_hours != null) {
-    return Number(row.actual_total_hours);
-  }
+function getPayrollHours(row: PayrollWithEmployee): number {
+  return Number(row.regular_hours) + Number(row.night_hours);
+}
+
+function getActualTotalHours(row: PayrollWithEmployee): number {
+  if (row.actual_total_hours != null) return Number(row.actual_total_hours);
   return Number(row.actual_regular_hours ?? row.regular_hours) + Number(row.actual_night_hours ?? row.night_hours);
 }
 
@@ -47,16 +46,29 @@ export function PayrollManager({
   const [storeId, setStoreId] = useState(initialStoreId);
   const [payroll, setPayroll] = useState(initialPayroll);
   const [loading, setLoading] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const router = useRouter();
   const supabase = createClient();
 
+  const summary = useMemo(() => {
+    return payroll.reduce(
+      (acc, row) => {
+        acc.count += 1;
+        acc.totalPay += Number(row.total_pay);
+        acc.totalHours += getActualTotalHours(row);
+        acc.regularHours += Number(row.actual_regular_hours ?? row.regular_hours);
+        acc.nightHours += Number(row.actual_night_hours ?? row.night_hours);
+        return acc;
+      },
+      { count: 0, totalPay: 0, totalHours: 0, regularHours: 0, nightHours: 0 }
+    );
+  }, [payroll]);
+
   const loadPayroll = async (y: number, m: number, store: string) => {
     let query = supabase
       .from("monthly_payroll")
-      .select("*, employees(id, name, employee_code, store_id, stores(id, name))")
+      .select("*, employees(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
       .eq("year", y)
       .eq("month", m)
       .order("total_pay", { ascending: false });
@@ -64,7 +76,7 @@ export function PayrollManager({
     if (!isAllStores(store)) {
       query = supabase
         .from("monthly_payroll")
-        .select("*, employees!inner(id, name, employee_code, store_id, stores(id, name))")
+        .select("*, employees!inner(id, name, employee_code, hourly_rate, store_id, stores(id, name))")
         .eq("year", y)
         .eq("month", m)
         .eq("employees.store_id", store)
@@ -101,9 +113,7 @@ export function PayrollManager({
         isSuperAdmin ? null : companyId
       );
       await loadPayroll(y, m, storeId);
-      const storeLabel = isAllStores(storeId)
-        ? "全店舗"
-        : stores.find((s) => s.id === storeId)?.name ?? "";
+      const storeLabel = isAllStores(storeId) ? "全店舗" : stores.find((s) => s.id === storeId)?.name ?? "";
       if (result.errors.length > 0) {
         setMessage({
           type: "error",
@@ -112,7 +122,7 @@ export function PayrollManager({
       } else {
         setMessage({
           type: "success",
-          text: `${y}年${m}月（${storeLabel}）の給与を${result.processed}名分計算しました`,
+          text: `${y}年${m}月（${storeLabel}）の給与を${result.processed}名分再計算しました`,
         });
       }
     } catch (e) {
@@ -122,55 +132,22 @@ export function PayrollManager({
     }
   };
 
-  const totalAmount = payroll.reduce((sum, p) => sum + Number(p.total_pay), 0);
-
-  const handleDownloadPdf = async () => {
-    if (payroll.length === 0) {
-      setMessage({ type: "error", text: "給与データがありません。先に給与を計算してください。" });
-      return;
-    }
-    setPdfLoading(true);
-    setMessage(null);
-    try {
-      await downloadPayrollPdf(payroll, Number(year), Number(month));
-      setMessage({ type: "success", text: "給与明細PDFをダウンロードしました。" });
-    } catch (e) {
-      setMessage({ type: "error", text: (e as Error).message });
-    } finally {
-      setPdfLoading(false);
-    }
-  };
-
   const handleDownloadCsv = async () => {
     if (payroll.length === 0) {
       setMessage({ type: "error", text: "給与データがありません。先に給与を計算してください。" });
       return;
     }
-
     setCsvLoading(true);
     setMessage(null);
-
     try {
-      const params = new URLSearchParams({
-        storeId: storeId,
-        year: year,
-        month: month,
-      });
+      const params = new URLSearchParams({ storeId, year, month });
       const response = await fetch(`/api/admin/payroll/csv?${params.toString()}`);
-
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(
-          data.error === "出力する給与データがありません"
-            ? data.error
-            : "CSV出力に失敗しました。時間を置いて再度お試しください。"
-        );
+        throw new Error(data.error ?? "CSV出力に失敗しました");
       }
-
       const blob = await response.blob();
-      const storeLabel = isAllStores(storeId)
-        ? "全店舗"
-        : stores.find((store) => store.id === storeId)?.name ?? "店舗";
+      const storeLabel = isAllStores(storeId) ? "全店舗" : stores.find((s) => s.id === storeId)?.name ?? "店舗";
       const filename = buildPayrollCsvFilename(Number(year), Number(month), storeLabel);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -180,135 +157,144 @@ export function PayrollManager({
       URL.revokeObjectURL(url);
       setMessage({ type: "success", text: "給与CSVを出力しました" });
     } catch (e) {
-      setMessage({
-        type: "error",
-        text: (e as Error).message || "CSV出力に失敗しました。時間を置いて再度お試しください。",
-      });
+      setMessage({ type: "error", text: (e as Error).message });
     } finally {
       setCsvLoading(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
+    <div className="space-y-6">
+      {/* フィルター */}
+      <div className="rounded-2xl bg-white p-5 shadow-sm">
         <form onSubmit={handlePeriodChange} className="flex flex-wrap items-end gap-3">
-          <StoreSelect
-            stores={stores}
-            value={storeId}
-            onChange={setStoreId}
-            label="店舗選択"
-          />
+          <StoreSelect stores={stores} value={storeId} onChange={setStoreId} label="店舗" />
           <div>
-            <label className="mb-1 block text-sm text-slate-600">年</label>
-            <Input
-              type="number"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              className="w-28"
-            />
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">年</label>
+            <Input type="number" value={year} onChange={(e) => setYear(e.target.value)} className="w-28" />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-slate-600">月</label>
-            <Input
-              type="number"
-              min={1}
-              max={12}
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="w-20"
-            />
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">月</label>
+            <Input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(e.target.value)} className="w-20" />
           </div>
           <Button type="submit" variant="secondary">
             表示
           </Button>
+        </form>
+        <div className="mt-4 flex flex-wrap gap-2">
           <Button type="button" onClick={handleCalculate} disabled={loading}>
-            {loading ? "計算中…" : "給与を計算"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleDownloadPdf}
-            disabled={pdfLoading || payroll.length === 0}
-          >
-            {pdfLoading ? "PDF作成中…" : "給与明細PDFを出力"}
+            {loading ? "計算中…" : "再計算"}
           </Button>
           {canExportCsv && (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleDownloadCsv}
-              disabled={csvLoading || payroll.length === 0}
-            >
-              {csvLoading ? "CSV出力中…" : "給与CSVを出力"}
+            <Button type="button" variant="secondary" onClick={handleDownloadCsv} disabled={csvLoading || payroll.length === 0}>
+              {csvLoading ? "出力中…" : "給与CSV出力"}
             </Button>
           )}
-        </form>
-        <p className="mt-2 text-xs text-slate-500">
-          「給与を計算」で選択月の勤怠から自動集計します（退勤未記録は除外）。
-          15分未満の勤務区間は0時間、以降は30分単位で切り捨て（0.5時間刻み）して給与に反映します。
-          残業時間は1日8時間を超えた分の合計です。月末は自動集計（Vercel Cron）も実行されます。
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          給与計算は円未満切り捨てで計算しています（通常給・深夜給・合計支給額）。
-          既存の給与データを反映するには「給与を計算」を再実行してください。
-        </p>
-      </Card>
+        </div>
+      </div>
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
-      <Card>
-        <p className="text-sm text-slate-500">合計支給額</p>
-        <p className="text-2xl font-bold text-slate-900">{formatYen(totalAmount)}</p>
-      </Card>
+      {/* サマリーカード */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {[
+          { label: "対象人数", value: `${summary.count}名` },
+          { label: "総支給額", value: formatYen(summary.totalPay), highlight: "red" },
+          { label: "総勤務時間", value: formatHoursClock(summary.totalHours) },
+          { label: "通常勤務時間", value: formatHoursClock(summary.regularHours) },
+          { label: "深夜勤務時間", value: formatHoursClock(summary.nightHours), highlight: "blue" },
+        ].map((card) => (
+          <div key={card.label} className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-xs text-slate-500">{card.label}</p>
+            <p
+              className={`mt-1 text-lg font-bold ${
+                card.highlight === "red"
+                  ? "text-red-600"
+                  : card.highlight === "blue"
+                    ? "text-blue-600"
+                    : "text-slate-900"
+              }`}
+            >
+              {card.value}
+            </p>
+          </div>
+        ))}
+      </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-4 py-3 font-medium">従業員</th>
-              <th className="px-4 py-3 font-medium">店舗</th>
-              <th className="px-4 py-3 font-medium">出勤日数</th>
-              <th className="px-4 py-3 font-medium">総勤務時間</th>
-              <th className="min-w-[8rem] px-4 py-3 font-medium">通常勤務</th>
-              <th className="min-w-[8rem] px-4 py-3 font-medium">深夜(22時〜)</th>
-              <th className="px-4 py-3 font-medium">残業時間</th>
-              <th className="px-4 py-3 font-medium">通常給</th>
-              <th className="px-4 py-3 font-medium">深夜給</th>
-              <th className="px-4 py-3 font-medium">合計</th>
+      {/* PC: テーブル */}
+      <div className="hidden overflow-hidden rounded-2xl bg-white shadow-sm md:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <th className="px-5 py-3 font-medium">社員コード</th>
+              <th className="px-5 py-3 font-medium">従業員名</th>
+              <th className="px-5 py-3 font-medium">勤務日数</th>
+              <th className="px-5 py-3 font-medium">給与計算時間</th>
+              <th className="px-5 py-3 font-medium">通常勤務時間</th>
+              <th className="px-5 py-3 font-medium">深夜勤務時間</th>
+              <th className="px-5 py-3 font-medium">時給</th>
+              <th className="px-5 py-3 font-medium">通常給与</th>
+              <th className="px-5 py-3 font-medium">深夜手当</th>
+              <th className="px-5 py-3 font-medium">総支給額</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {payroll.map((row) => (
-              <tr key={row.id}>
-                <td className="px-4 py-3 font-medium">{row.employees?.name ?? "—"}</td>
-                <td className="px-4 py-3 text-slate-600">{row.employees?.stores?.name ?? "—"}</td>
-                <td className="px-4 py-3">{row.attendance_days ?? 0}日</td>
-                <td className="px-4 py-3">{formatActualHours(getTotalHours(row))}</td>
-                <td className="px-4 py-3">
-                  <HoursDisplay
-                    actualHours={Number(row.actual_regular_hours ?? row.regular_hours)}
-                    payrollHours={Number(row.regular_hours)}
-                  />
+              <tr key={row.id} className="border-b border-slate-50 last:border-0">
+                <td className="px-5 py-4 font-mono text-xs">{row.employees?.employee_code ?? "—"}</td>
+                <td className="px-5 py-4 font-medium">{row.employees?.name ?? "—"}</td>
+                <td className="px-5 py-4">{row.attendance_days ?? 0}日</td>
+                <td className="px-5 py-4 font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</td>
+                <td className="px-5 py-4">{formatHoursClock(Number(row.actual_regular_hours ?? row.regular_hours))}</td>
+                <td className="px-5 py-4 font-medium text-blue-600">
+                  {formatHoursClock(Number(row.actual_night_hours ?? row.night_hours))}
                 </td>
-                <td className="px-4 py-3">
-                  <HoursDisplay
-                    actualHours={Number(row.actual_night_hours ?? row.night_hours)}
-                    payrollHours={Number(row.night_hours)}
-                  />
-                </td>
-                <td className="px-4 py-3">{formatActualHours(Number(row.overtime_hours ?? 0))}</td>
-                <td className="px-4 py-3">{formatYen(Number(row.regular_pay))}</td>
-                <td className="px-4 py-3">{formatYen(Number(row.night_pay))}</td>
-                <td className="px-4 py-3 font-semibold">{formatYen(Number(row.total_pay))}</td>
+                <td className="px-5 py-4">{formatYen(Number(row.employees?.hourly_rate ?? 0))}</td>
+                <td className="px-5 py-4">{formatYen(Number(row.regular_pay))}</td>
+                <td className="px-5 py-4">{formatYen(Number(row.night_pay))}</td>
+                <td className="px-5 py-4 font-bold text-red-600">{formatYen(Number(row.total_pay))}</td>
               </tr>
             ))}
           </tbody>
         </table>
         {payroll.length === 0 && (
-          <p className="py-8 text-center text-sm text-slate-500">
-            この月の給与データがありません。「給与を計算」を実行してください。
-          </p>
+          <p className="py-12 text-center text-sm text-slate-500">この月の給与データがありません。「再計算」を実行してください。</p>
+        )}
+      </div>
+
+      {/* スマホ: カード */}
+      <div className="space-y-4 md:hidden">
+        {payroll.map((row) => (
+          <div key={row.id} className="rounded-2xl bg-white p-5 shadow-sm">
+            <p className="text-lg font-bold text-slate-900">{row.employees?.name ?? "—"}</p>
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-slate-500">勤務日数</dt>
+                <dd>{row.attendance_days ?? 0}日</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">給与計算時間</dt>
+                <dd className="font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">通常勤務時間</dt>
+                <dd>{formatHoursClock(Number(row.actual_regular_hours ?? row.regular_hours))}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">深夜勤務時間</dt>
+                <dd className="font-medium text-blue-600">
+                  {formatHoursClock(Number(row.actual_night_hours ?? row.night_hours))}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="text-xs text-slate-500">総支給額</p>
+              <p className="text-2xl font-bold text-red-600">{formatYen(Number(row.total_pay))}</p>
+            </div>
+          </div>
+        ))}
+        {payroll.length === 0 && (
+          <p className="py-12 text-center text-sm text-slate-500">この月の給与データがありません。</p>
         )}
       </div>
     </div>
