@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/lib/auth/company-context";
 import { getPayrollDiagnostics } from "@/lib/payroll/diagnostics";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { isAllStores } from "@/lib/stores/queries";
 
@@ -22,8 +23,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "year と month が必要です" }, { status: 400 });
   }
 
+  const serviceSupabase = createServiceClient();
   const diagnostics = await getPayrollDiagnostics(
-    supabase,
+    serviceSupabase,
     year,
     month,
     isAllStores(storeId) ? null : storeId,

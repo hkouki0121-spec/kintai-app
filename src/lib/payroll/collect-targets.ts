@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getJstMonthBounds } from "@/lib/payroll/jst-month";
+import { fetchAttendanceRecordsInScope } from "@/lib/payroll/attendance-query";
 import { isAllStores } from "@/lib/stores/queries";
 
 /** 給与再計算・表示の対象従業員ID（勤怠ベース + 店舗所属の在籍者） */
@@ -10,25 +10,16 @@ export async function collectPayrollTargetEmployeeIds(
   storeId?: string | null,
   companyId?: string | null
 ): Promise<string[]> {
-  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
   const ids = new Set<string>();
 
-  let attendanceQuery = supabase
-    .from("attendance_records")
-    .select("employee_id")
-    .lt("clock_in", monthEnd.toISOString())
-    .or(`clock_out.gt.${monthStart.toISOString()},clock_out.is.null`);
-
-  if (companyId) {
-    attendanceQuery = attendanceQuery.eq("company_id", companyId);
-  }
-  if (!isAllStores(storeId)) {
-    attendanceQuery = attendanceQuery.eq("store_id", storeId!);
-  }
-
-  const { data: attendanceRows, error: attendanceError } = await attendanceQuery;
-  if (attendanceError) throw attendanceError;
-  for (const row of attendanceRows ?? []) {
+  const attendanceRows = await fetchAttendanceRecordsInScope(
+    supabase,
+    year,
+    month,
+    storeId,
+    companyId
+  );
+  for (const row of attendanceRows) {
     ids.add(row.employee_id);
   }
 

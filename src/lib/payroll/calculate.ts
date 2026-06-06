@@ -9,7 +9,7 @@ import { floorYen } from "@/lib/payroll/floor-yen";
 import { getJstMonthBounds } from "@/lib/payroll/jst-month";
 import {
   isWorkSegmentEligible,
-  roundMinutesToPayrollHours,
+  roundMinutesForPayroll,
 } from "@/lib/payroll/round-hours";
 import {
   getPayrollSettings,
@@ -95,8 +95,10 @@ export function calculateEmployeePayroll(
   const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
   const roundingMinutes = settings.roundingMinutes;
 
-  let regularMinutes = 0;
-  let nightMinutes = 0;
+  let actualRegularMinutes = 0;
+  let actualNightMinutes = 0;
+  let payrollRegularMinutes = 0;
+  let payrollNightMinutes = 0;
   const attendanceDayKeys = new Set<string>();
   const dailyTotalMinutes = new Map<string, number>();
 
@@ -111,11 +113,14 @@ export function calculateEmployeePayroll(
     if (effectiveOut <= effectiveIn) continue;
 
     const segment = splitWorkMinutes(effectiveIn, effectiveOut);
-    if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes, roundingMinutes)) {
+    if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes)) {
       continue;
     }
-    regularMinutes += segment.regularMinutes;
-    nightMinutes += segment.nightMinutes;
+
+    actualRegularMinutes += segment.regularMinutes;
+    actualNightMinutes += segment.nightMinutes;
+    payrollRegularMinutes += roundMinutesForPayroll(segment.regularMinutes, roundingMinutes);
+    payrollNightMinutes += roundMinutesForPayroll(segment.nightMinutes, roundingMinutes);
 
     for (const [dayKey, daySegment] of splitWorkMinutesByDay(effectiveIn, effectiveOut)) {
       if (!isDateInMonth(dayKey, year, month)) continue;
@@ -131,12 +136,12 @@ export function calculateEmployeePayroll(
     overtimeMinutes += Math.max(0, dayTotal - DAILY_STATUTORY_MINUTES);
   }
 
-  const actualRegularHours = minutesToHours(regularMinutes);
-  const actualNightHours = minutesToHours(nightMinutes);
-  const actualTotalHours = minutesToHours(regularMinutes + nightMinutes);
+  const actualRegularHours = minutesToHours(actualRegularMinutes);
+  const actualNightHours = minutesToHours(actualNightMinutes);
+  const actualTotalHours = minutesToHours(actualRegularMinutes + actualNightMinutes);
   const overtimeHours = minutesToHours(overtimeMinutes);
-  const regularHours = roundMinutesToPayrollHours(regularMinutes, roundingMinutes);
-  const nightHours = roundMinutesToPayrollHours(nightMinutes, roundingMinutes);
+  const regularHours = minutesToHours(payrollRegularMinutes);
+  const nightHours = minutesToHours(payrollNightMinutes);
   const regularPay = floorYen(regularHours * hourlyRate);
   const nightPay = floorYen(nightHours * hourlyRate * NIGHT_RATE_MULTIPLIER);
   const totalPay = floorYen(regularPay + nightPay);

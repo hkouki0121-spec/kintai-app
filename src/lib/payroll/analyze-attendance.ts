@@ -2,6 +2,7 @@ import { splitWorkMinutes } from "@/lib/payroll/calculate";
 import { getJstMonthBounds } from "@/lib/payroll/jst-month";
 import {
   isWorkSegmentEligible,
+  MIN_PAYROLL_WORK_MINUTES,
   roundMinutesForPayroll,
 } from "@/lib/payroll/round-hours";
 import type { PayrollRoundingMinutes } from "@/lib/payroll/settings";
@@ -33,18 +34,15 @@ export type AttendancePayrollAnalysis = {
   included: boolean;
   reason: string | null;
   workMinutes: number;
+  payrollMinutes: number;
 };
-
-function formatRecordLabel(record: AttendanceRecordForAnalysis): string {
-  return `${record.clock_in.slice(0, 16)}`;
-}
 
 export function analyzeAttendanceRecordForPayroll(
   record: AttendanceRecordForAnalysis,
   employee: EmployeeForAnalysis | null,
   year: number,
   month: number,
-  roundingMinutes: PayrollRoundingMinutes,
+  roundingMinutes: PayrollRoundingMinutes
 ): AttendancePayrollAnalysis {
   const base = {
     recordId: record.id,
@@ -56,6 +54,7 @@ export function analyzeAttendanceRecordForPayroll(
     included: false,
     reason: null as string | null,
     workMinutes: 0,
+    payrollMinutes: 0,
   };
 
   if (!employee) {
@@ -89,19 +88,17 @@ export function analyzeAttendanceRecordForPayroll(
   const workMinutes = segment.regularMinutes + segment.nightMinutes;
   base.workMinutes = workMinutes;
 
-  if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes, roundingMinutes)) {
+  if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes)) {
     return {
       ...base,
-      reason: `勤務時間が${roundingMinutes}分未満（${workMinutes}分）`,
+      reason: `勤務時間が${MIN_PAYROLL_WORK_MINUTES}分未満（${workMinutes}分）`,
     };
   }
 
-  const roundedMinutes =
+  const payrollMinutes =
     roundMinutesForPayroll(segment.regularMinutes, roundingMinutes) +
     roundMinutesForPayroll(segment.nightMinutes, roundingMinutes);
-  if (roundedMinutes === 0) {
-    return { ...base, reason: "給与計算時間が0" };
-  }
+  base.payrollMinutes = payrollMinutes;
 
   return { ...base, included: true };
 }
@@ -116,20 +113,4 @@ export function summarizeExclusionReasons(
     counts[key] = (counts[key] ?? 0) + 1;
   }
   return counts;
-}
-
-export function formatExcludedAttendanceSummary(analyses: AttendancePayrollAnalysis[]): string[] {
-  return analyses
-    .filter((item) => !item.included && item.reason)
-    .map(
-      (item) =>
-        `${item.employeeName}（${item.employeeCode}）${formatRecordLabel({
-          id: item.recordId,
-          employee_id: item.employeeId,
-          store_id: "",
-          company_id: "",
-          clock_in: item.clockIn,
-          clock_out: item.clockOut,
-        })}: ${item.reason}`
-    );
 }

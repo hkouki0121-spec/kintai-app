@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
-import { getJstMonthBounds } from "@/lib/payroll/jst-month";
+import { fetchEmployeeAttendanceInMonth } from "@/lib/payroll/attendance-query";
 import { getPayrollSettings } from "@/lib/payroll/settings";
 import { TIMEZONE } from "@/lib/constants";
 
@@ -49,16 +49,13 @@ export async function recalculateEmployeeMonthlyPayroll(
     });
   }
 
-  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
-
-  const { data: records, error: attError } = await supabase
-    .from("attendance_records")
-    .select("clock_in, clock_out")
-    .eq("employee_id", employeeId)
-    .lt("clock_in", monthEnd.toISOString())
-    .or(`clock_out.gt.${monthStart.toISOString()},clock_out.is.null`);
-
-  if (attError) return { ok: false, error: attError.message };
+  let records;
+  try {
+    records = await fetchEmployeeAttendanceInMonth(supabase, employeeId, year, month);
+  } catch (attError) {
+    const message = attError instanceof Error ? attError.message : "勤怠取得に失敗しました";
+    return { ok: false, error: message };
+  }
 
   const settings = getPayrollSettings(company?.payroll_rounding_minutes);
   const result = calculateEmployeePayroll(

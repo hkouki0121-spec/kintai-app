@@ -10,7 +10,9 @@ import {
   isAllStores,
 } from "@/lib/csv/payroll-csv-query";
 import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
+import { syncPayrollFromAttendance } from "@/lib/payroll/sync-from-attendance";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import type { PayrollWithEmployee } from "@/types/database";
 
 const CSV_EXPORT_ERROR =
@@ -60,9 +62,34 @@ export async function GET(request: Request) {
     }
   }
 
+  let storeLabel = "全店舗";
+  if (!isAllStores(storeId)) {
+    const { data: store } = await supabase
+      .from("stores")
+      .select("name")
+      .eq("id", storeId)
+      .maybeSingle();
+    storeLabel = store?.name ?? "店舗";
+  }
+
   let payroll: PayrollWithCompany[];
   try {
-    const rows = await fetchPayrollForPeriod(supabase, year, month, storeId, context.companyId);
+    const serviceSupabase = createServiceClient();
+    await syncPayrollFromAttendance(
+      serviceSupabase,
+      year,
+      month,
+      isAllStores(storeId) ? null : storeId,
+      context.companyId,
+      storeLabel
+    );
+    const rows = await fetchPayrollForPeriod(
+      serviceSupabase,
+      year,
+      month,
+      storeId,
+      context.companyId
+    );
     payroll = rows.map((row) => ({
       ...row,
       companies: context.companyName ? { name: context.companyName } : null,
@@ -71,21 +98,12 @@ export async function GET(request: Request) {
     console.error("[payroll/csv]", error);
     return NextResponse.json({ error: CSV_EXPORT_ERROR }, { status: 500 });
   }
+
   if (payroll.length === 0) {
     return NextResponse.json({ error: "出力する給与データがありません" }, { status: 404 });
   }
 
   const companyName = context.companyName ?? payroll[0]?.companies?.name ?? "";
-
-  let storeLabel = "全店舗";
-  if (!isAllStores(storeId)) {
-    const { data: store } = await supabase
-      .from("stores")
-      .select("name")
-      .eq("id", storeId)
-      .maybeSingle();
-    storeLabel = store?.name ?? payroll[0]?.employees?.stores?.name ?? "店舗";
-  }
 
   try {
     const csv = buildPayrollCsvContent(payrollRowsToCsvRows(payroll, companyName));

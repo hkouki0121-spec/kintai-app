@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import type { PayrollDiagnostics } from "@/lib/payroll/diagnostics";
+import type { EmployeePayrollLog } from "@/lib/payroll/sync-from-attendance";
 
 type Props = {
   stores: Pick<Store, "id" | "name">[];
@@ -47,6 +48,7 @@ export function PayrollManager({
   const [csvLoading, setCsvLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [diagnostics, setDiagnostics] = useState<PayrollDiagnostics | null>(null);
+  const [employeeResults, setEmployeeResults] = useState<EmployeePayrollLog[]>([]);
   const [syncing, setSyncing] = useState(false);
   const router = useRouter();
 
@@ -66,7 +68,9 @@ export function PayrollManager({
     const params = new URLSearchParams({ year: String(y), month: String(m), storeId: store });
     const res = await fetch(`/api/admin/payroll/diagnostics?${params.toString()}`);
     if (res.ok) {
-      setDiagnostics((await res.json()) as PayrollDiagnostics);
+      const data = (await res.json()) as PayrollDiagnostics;
+      setDiagnostics(data);
+      setEmployeeResults(data.employeeResults ?? []);
     }
   }, []);
 
@@ -83,12 +87,7 @@ export function PayrollManager({
           processed?: number;
           errors?: string[];
           payroll?: PayrollWithEmployee[];
-          employeeLogs?: Array<{
-            employee_name: string;
-            upsert_ok: boolean;
-            error?: string;
-            excluded_reason: string[];
-          }>;
+          employeeLogs?: EmployeePayrollLog[];
           error?: string;
         };
         if (!res.ok) {
@@ -98,6 +97,9 @@ export function PayrollManager({
           setPayroll(data.payroll);
         } else {
           await loadPayroll(y, m, store);
+        }
+        if (data.employeeLogs) {
+          setEmployeeResults(data.employeeLogs);
         }
         await loadDiagnostics(y, m, store);
         const failedEmployees =
@@ -235,36 +237,86 @@ export function PayrollManager({
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
-      {diagnostics && (
+      {(diagnostics || employeeResults.length > 0) && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <h3 className="font-bold text-amber-900">勤怠と給与の確認</h3>
-          <p className="mt-1 text-sm text-amber-800">
-            勤怠履歴から自動反映 ／ 計算区切り: {diagnostics.roundingMinutes}分単位 ／ 勤怠あり{" "}
-            {diagnostics.summary.employeesWithAttendance}名
-            {diagnostics.summary.totalExcludedRecords > 0 &&
-              ` ／ 給与対象外 ${diagnostics.summary.totalExcludedRecords}件`}
-            {diagnostics.summary.totalOpenShifts > 0 && ` ／ 退勤未打刻 ${diagnostics.summary.totalOpenShifts}件`}
-          </p>
-          {diagnostics.items.length > 0 ? (
-            <ul className="mt-3 space-y-2 text-sm text-amber-900">
-              {diagnostics.items.map((item) => (
-                <li key={item.employeeId} className="rounded-xl bg-white/70 px-3 py-2">
-                  <span className="font-medium">{item.employeeName}</span>
-                  <span className="text-amber-700">（{item.employeeCode}）</span>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-800">
-                    {item.issues.map((issue) => (
-                      <li key={`${item.employeeId}-${issue}`}>{issue}</li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          ) : diagnostics.summary.employeesWithAttendance > 0 ? (
-            <p className="mt-2 text-sm text-emerald-700">
-              問題は検出されませんでした。表示が古い場合は「給与を計算」を実行してください。
+          <h3 className="font-bold text-amber-900">給与集計診断</h3>
+          {diagnostics && (
+            <p className="mt-1 text-sm text-amber-800">
+              取得した勤怠: {diagnostics.summary.attendanceRecordsTotal}件 ／ 対象:{" "}
+              {diagnostics.summary.attendanceIncluded}件 ／ 除外:{" "}
+              {diagnostics.summary.attendanceExcluded}件 ／ 計算区切り:{" "}
+              {diagnostics.roundingMinutes}分（15分未満のみ除外）
             </p>
+          )}
+          {diagnostics && Object.keys(diagnostics.summary.exclusionReasons).length > 0 && (
+            <p className="mt-2 text-sm text-amber-900">
+              除外理由:{" "}
+              {Object.entries(diagnostics.summary.exclusionReasons)
+                .map(([reason, count]) => `${reason} ${count}件`)
+                .join("、")}
+            </p>
+          )}
+          {employeeResults.length > 0 ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {employeeResults.map((item) => (
+                <div key={item.employee_id} className="rounded-xl bg-white/80 px-4 py-3 text-sm">
+                  <p className="font-bold text-slate-900">{item.employee_name}</p>
+                  <dl className="mt-2 space-y-1 text-slate-700">
+                    <div className="flex justify-between">
+                      <dt>勤怠件数</dt>
+                      <dd>{item.attendance_count}件</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>対象件数</dt>
+                      <dd>{item.included_count}件</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>除外件数</dt>
+                      <dd>{item.excluded_count}件</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>給与計算時間</dt>
+                      <dd className="font-semibold text-emerald-700">
+                        {formatHoursClock(item.payroll_hours)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>総支給額</dt>
+                      <dd className="font-bold text-red-600">{formatYen(item.total_pay)}</dd>
+                    </div>
+                  </dl>
+                  {item.excluded_reason.length > 0 && (
+                    <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-amber-800">
+                      {item.excluded_reason.map((reason) => (
+                        <li key={`${item.employee_id}-${reason}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {!item.upsert_ok && item.error && (
+                    <p className="mt-2 text-xs text-red-600">保存エラー: {item.error}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="mt-2 text-sm text-amber-800">この月の勤怠記録がありません。</p>
+          )}
+          {diagnostics && diagnostics.items.length > 0 && (
+            <div className="mt-4 border-t border-amber-200 pt-4">
+              <p className="text-sm font-medium text-amber-900">要確認</p>
+              <ul className="mt-2 space-y-2 text-sm text-amber-900">
+                {diagnostics.items.map((item) => (
+                  <li key={item.employeeId} className="rounded-xl bg-white/70 px-3 py-2">
+                    <span className="font-medium">{item.employeeName}</span>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-800">
+                      {item.issues.map((issue) => (
+                        <li key={`${item.employeeId}-${issue}`}>{issue}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

@@ -8,7 +8,8 @@ export async function fetchPayrollForPeriod(
   year: number,
   month: number,
   storeId?: string | null,
-  companyId?: string | null
+  companyId?: string | null,
+  options?: { forceRecalculate?: boolean }
 ): Promise<PayrollWithEmployee[]> {
   const targetIds = await collectPayrollTargetEmployeeIds(
     supabase,
@@ -20,6 +21,15 @@ export async function fetchPayrollForPeriod(
 
   if (targetIds.length === 0) {
     return [];
+  }
+
+  if (options?.forceRecalculate) {
+    for (const employeeId of targetIds) {
+      const result = await recalculateEmployeeMonthlyPayroll(supabase, employeeId, year, month);
+      if (!result.ok) {
+        console.error("[payroll/fetch] recalculate failed", { employeeId, error: result.error });
+      }
+    }
   }
 
   let query = supabase
@@ -48,7 +58,7 @@ export async function fetchPayrollForPeriod(
     }
   }
 
-  if (missingIds.length === 0) {
+  if (missingIds.length === 0 && !options?.forceRecalculate) {
     return rows;
   }
 

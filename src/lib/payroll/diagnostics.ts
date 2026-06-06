@@ -3,9 +3,13 @@ import {
   analyzeAttendanceRecordForPayroll,
   type AttendancePayrollAnalysis,
 } from "@/lib/payroll/analyze-attendance";
+import {
+  fetchAttendanceRecordsInScope,
+  fetchEmployeeAttendanceInMonth,
+} from "@/lib/payroll/attendance-query";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
-import { getJstMonthBounds } from "@/lib/payroll/jst-month";
 import { getPayrollSettings, normalizePayrollRoundingMinutes } from "@/lib/payroll/settings";
+import type { EmployeePayrollLog } from "@/lib/payroll/sync-from-attendance";
 import { isAllStores } from "@/lib/stores/queries";
 
 export type PayrollDiagnosticItem = {
@@ -16,6 +20,7 @@ export type PayrollDiagnosticItem = {
   openRecords: number;
   calculatedTotalHours: number;
   payrollTotalHours: number;
+  totalPay: number;
   issues: string[];
   excludedRecords: AttendancePayrollAnalysis[];
 };
@@ -25,6 +30,7 @@ export type PayrollDiagnostics = {
   month: number;
   roundingMinutes: number;
   items: PayrollDiagnosticItem[];
+  employeeResults: EmployeePayrollLog[];
   excludedRecords: AttendancePayrollAnalysis[];
   summary: {
     employeesWithAttendance: number;
@@ -32,6 +38,10 @@ export type PayrollDiagnostics = {
     employeesWithZeroPayroll: number;
     totalOpenShifts: number;
     totalExcludedRecords: number;
+    attendanceRecordsTotal: number;
+    attendanceIncluded: number;
+    attendanceExcluded: number;
+    exclusionReasons: Record<string, number>;
   };
 };
 
@@ -41,19 +51,21 @@ async function resolveRoundingMinutes(
   companyIds?: string[]
 ): Promise<number> {
   if (companyId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("companies")
       .select("payroll_rounding_minutes")
       .eq("id", companyId)
       .maybeSingle();
+    if (error) return 30;
     return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
   }
   if (companyIds?.length === 1) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("companies")
       .select("payroll_rounding_minutes")
       .eq("id", companyIds[0])
       .maybeSingle();
+    if (error) return 30;
     return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
   }
   return 30;
@@ -66,41 +78,22 @@ export async function getPayrollDiagnostics(
   storeId?: string | null,
   companyId?: string | null
 ): Promise<PayrollDiagnostics> {
-  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
-
-  let attendanceQuery = supabase
-    .from("attendance_records")
-    .select("id, employee_id, store_id, company_id, clock_in, clock_out")
-    .lt("clock_in", monthEnd.toISOString())
-    .or(`clock_out.gt.${monthStart.toISOString()},clock_out.is.null`);
-
-  if (companyId) {
-    attendanceQuery = attendanceQuery.eq("company_id", companyId);
-  }
-  if (!isAllStores(storeId)) {
-    attendanceQuery = attendanceQuery.eq("store_id", storeId!);
-  }
-
-  const { data: attendanceRows } = await attendanceQuery;
-  const records = attendanceRows ?? [];
+  const records = await fetchAttendanceRecordsInScope(supabase, year, month, storeId, companyId);
   const employeeIds = [...new Set(records.map((row) => row.employee_id))];
 
   let employeeQuery = supabase
     .from("employees")
-    .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active")
-    .eq("is_active", true);
+    .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active");
 
-  if (!isAllStores(storeId)) {
-    employeeQuery = employeeQuery.eq("store_id", storeId!);
-  }
   if (companyId) {
     employeeQuery = employeeQuery.eq("company_id", companyId);
   }
 
-  const { data: scopedEmployees } = await employeeQuery;
-  const scopedEmployeeIds = new Set((scopedEmployees ?? []).map((emp) => emp.id));
-  for (const id of employeeIds) {
-    scopedEmployeeIds.add(id);
+  const { data: companyEmployees } = await employeeQuery;
+  const scopedEmployeeIds = new Set(employeeIds);
+  for (const emp of companyEmployees ?? []) {
+    if (!isAllStores(storeId) && emp.store_id !== storeId) continue;
+    if (emp.is_active) scopedEmployeeIds.add(emp.id);
   }
 
   const { data: employees } = await supabase
@@ -124,29 +117,41 @@ export async function getPayrollDiagnostics(
   );
 
   const excludedRecords = allAnalyses.filter((item) => !item.included);
-  const items: PayrollDiagnosticItem[] = [];
-  const scopedIds = [...scopedEmployeeIds];
+  const exclusionReasons = excludedRecords.reduce<Record<string, number>>((acc, item) => {
+    if (!item.reason) return acc;
+    const key = item.reason.split("（")[0];
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const { data: payrollRows } = await supabase
     .from("monthly_payroll")
     .select("employee_id, calculated_at, total_pay, regular_hours, night_hours")
     .eq("year", year)
     .eq("month", month)
-    .in("employee_id", scopedIds.length > 0 ? scopedIds : ["00000000-0000-0000-0000-000000000000"]);
+    .in("employee_id", [...scopedEmployeeIds]);
+
   const payrollMap = new Map((payrollRows ?? []).map((row) => [row.employee_id, row]));
+  const items: PayrollDiagnosticItem[] = [];
+  const employeeResults: EmployeePayrollLog[] = [];
 
-  for (const emp of employees ?? []) {
-    const empRecords = records.filter((row) => row.employee_id === emp.id);
-    if (empRecords.length === 0) continue;
+  const employeesWithAttendance = new Set(records.map((row) => row.employee_id));
 
-    const empAnalyses = allAnalyses.filter((item) => item.employeeId === emp.id);
+  for (const empId of employeesWithAttendance) {
+    const emp = employeeMap.get(empId);
+    if (!emp) continue;
+
+    const empRecords = records.filter((row) => row.employee_id === empId);
+    const empAnalyses = allAnalyses.filter((item) => item.employeeId === empId);
     const openRecords = empRecords.filter((row) => !row.clock_out).length;
     const closedRecords = empRecords.length - openRecords;
     const empExcluded = empAnalyses.filter((item) => !item.included);
 
+    const allEmpRecords = await fetchEmployeeAttendanceInMonth(supabase, emp.id, year, month);
     const result = calculateEmployeePayroll(
       emp.id,
       Number(emp.hourly_rate),
-      empRecords,
+      allEmpRecords,
       year,
       month,
       settings
@@ -172,61 +177,70 @@ export async function getPayrollDiagnostics(
       ) {
         issues.push("給与データが勤怠より古いです（再計算が必要です）");
       }
-      const savedHours =
-        Number(savedPayroll.regular_hours ?? 0) + Number(savedPayroll.night_hours ?? 0);
-      if (payrollTotalHours > 0 && savedHours === 0) {
-        issues.push("勤怠はあるが保存済み給与計算時間が0です");
-      }
     }
     if (openRecords > 0) {
       issues.push(`退勤未打刻が${openRecords}件あります`);
-    }
-    if (closedRecords > 0 && payrollTotalHours === 0) {
-      issues.push(`勤怠はあるが給与計算時間が0です（${roundingMinutes}分単位未満の可能性）`);
     }
     for (const excluded of empExcluded) {
       if (excluded.reason) {
         issues.push(`${excluded.clockIn.slice(0, 16)}: ${excluded.reason}`);
       }
     }
-    for (const record of empRecords) {
-      const employee = employeeMap.get(record.employee_id);
-      if (employee?.store_id && employee.store_id !== record.store_id) {
-        issues.push(
-          `${record.clock_in.slice(0, 16)}: store_id 不一致（所属店舗と勤怠店舗が異なります）`
-        );
-      }
+
+    const log: EmployeePayrollLog = {
+      employee_name: emp.name,
+      employee_id: emp.id,
+      attendance_count: empRecords.length,
+      included_count: empAnalyses.filter((item) => item.included).length,
+      excluded_count: empExcluded.length,
+      excluded_reason: empExcluded
+        .filter((item) => item.reason)
+        .map((item) => `${item.clockIn.slice(0, 16)}: ${item.reason}`),
+      regular_hours: result.regularHours,
+      night_hours: result.nightHours,
+      payroll_hours: payrollTotalHours,
+      total_pay: savedPayroll ? Number(savedPayroll.total_pay) : result.totalPay,
+      upsert_ok: Boolean(savedPayroll),
+    };
+    employeeResults.push(log);
+
+    if (issues.length > 0) {
+      items.push({
+        employeeId: emp.id,
+        employeeName: emp.name,
+        employeeCode: emp.employee_code,
+        closedRecords,
+        openRecords,
+        calculatedTotalHours: result.actualTotalHours,
+        payrollTotalHours,
+        totalPay: log.total_pay,
+        issues,
+        excludedRecords: empExcluded,
+      });
     }
-
-    if (issues.length === 0 && payrollTotalHours > 0 && savedPayroll) continue;
-
-    items.push({
-      employeeId: emp.id,
-      employeeName: emp.name,
-      employeeCode: emp.employee_code,
-      closedRecords,
-      openRecords,
-      calculatedTotalHours: result.actualTotalHours,
-      payrollTotalHours,
-      issues,
-      excludedRecords: empExcluded,
-    });
   }
+
+  employeeResults.sort((a, b) => a.employee_name.localeCompare(b.employee_name, "ja"));
 
   return {
     year,
     month,
     roundingMinutes,
     items,
+    employeeResults,
     excludedRecords,
     summary: {
-      employeesWithAttendance: new Set(records.map((row) => row.employee_id)).size,
+      employeesWithAttendance: employeesWithAttendance.size,
       employeesWithOpenShifts: items.filter((item) => item.openRecords > 0).length,
-      employeesWithZeroPayroll: items.filter(
-        (item) => item.closedRecords > 0 && item.payrollTotalHours === 0
+      employeesWithZeroPayroll: employeeResults.filter(
+        (item) => item.included_count > 0 && item.payroll_hours === 0
       ).length,
       totalOpenShifts: records.filter((row) => !row.clock_out).length,
       totalExcludedRecords: excludedRecords.length,
+      attendanceRecordsTotal: records.length,
+      attendanceIncluded: allAnalyses.filter((item) => item.included).length,
+      attendanceExcluded: excludedRecords.length,
+      exclusionReasons,
     },
   };
 }
