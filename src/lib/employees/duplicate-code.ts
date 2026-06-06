@@ -1,14 +1,18 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DUPLICATE_EMPLOYEE_CODE_MESSAGE } from "@/lib/employees/constants";
+import {
+  DUPLICATE_EMPLOYEE_CODE_MESSAGE,
+  EMPTY_EMPLOYEE_CODE_MESSAGE,
+} from "@/lib/employees/constants";
 
 export function isDuplicateEmployeeCodeError(error: PostgrestError | null): boolean {
   if (!error) return false;
+  if (error.code !== "23505") return false;
+  const text = `${error.message} ${error.details ?? ""}`.toLowerCase();
   return (
-    error.code === "23505" &&
-    (error.message.includes("uniq_employees_company_code") ||
-      error.message.includes("employees_company_id_employee_code_key") ||
-      error.details?.includes("employee_code"))
+    text.includes("uniq_employees_company_code") ||
+    text.includes("employee_code") ||
+    text.includes("company_id")
   );
 }
 
@@ -27,23 +31,26 @@ export async function assertUniqueEmployeeCode(
   excludeEmployeeId?: string
 ): Promise<void> {
   const trimmed = employeeCode.trim();
-  if (!trimmed) return;
+  if (!trimmed) {
+    throw new Error(EMPTY_EMPLOYEE_CODE_MESSAGE);
+  }
 
   let query = supabase
     .from("employees")
     .select("id")
     .eq("company_id", companyId)
-    .eq("employee_code", trimmed);
+    .eq("employee_code", trimmed)
+    .limit(1);
 
   if (excludeEmployeeId) {
     query = query.neq("id", excludeEmployeeId);
   }
 
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = await query;
   if (error) {
     throw new Error(error.message);
   }
-  if (data) {
+  if (data && data.length > 0) {
     throw new Error(DUPLICATE_EMPLOYEE_CODE_MESSAGE);
   }
 }

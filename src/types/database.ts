@@ -57,8 +57,8 @@ export type Employee = {
   employee_code: string;
   store_id: string;
   hourly_rate: number;
-  job_title: string | null;
-  hired_at: string | null;
+  job_title?: string | null;
+  hired_at?: string | null;
   face_descriptor: FaceDescriptorEntry[] | number[] | null;
   is_active: boolean;
   created_at: string;

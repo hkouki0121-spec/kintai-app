@@ -25,7 +25,7 @@ export function downloadEmployeesCsv(employees: EmployeeWithStore[], filename = 
     emp.name,
     emp.job_title ?? "",
     String(emp.hourly_rate),
-    emp.hired_at ? formatJstDate(emp.hired_at) : formatJstDate(emp.created_at),
+    formatJstDate(emp.created_at),
     emp.is_active ? "在籍中" : "無効",
   ]);
 

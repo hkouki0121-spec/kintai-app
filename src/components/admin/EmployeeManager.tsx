@@ -2,11 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import {
-  assertUniqueEmployeeCode,
-  getEmployeeCodeErrorMessage,
-  type DuplicateEmployeeCodeGroup,
-} from "@/lib/employees/duplicate-code";
+import { EMPLOYEE_SELECT_COLUMNS } from "@/lib/employees/constants";
+import type { DuplicateEmployeeCodeGroup } from "@/lib/employees/duplicate-code";
 import { groupEmployeesByStore } from "@/lib/employees/group-by-store";
 import { downloadEmployeesCsv } from "@/lib/csv/export-employees-csv";
 import type { EmployeeWithStore, Store } from "@/types/database";
@@ -17,7 +14,6 @@ import { Alert } from "@/components/ui/Alert";
 import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
 import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
 import type { FaceDescriptorEntry } from "@/types/database";
-import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import { formatJstDate, formatYen } from "@/lib/format";
 
 type DeleteTarget = {
@@ -45,11 +41,22 @@ function StatusBadge({ active }: { active: boolean }) {
 }
 
 function getHireDate(emp: EmployeeWithStore): string {
-  return formatJstDate(emp.hired_at ?? emp.created_at);
+  return formatJstDate(emp.created_at);
+}
+
+function formatApiError(payload: {
+  error?: string;
+  message?: string;
+  code?: string | null;
+  details?: string | null;
+}): string {
+  const parts = [payload.error ?? payload.message ?? "保存に失敗しました"];
+  if (payload.code) parts.push(`code: ${payload.code}`);
+  if (payload.details) parts.push(`details: ${payload.details}`);
+  return parts.join("\n");
 }
 
 export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Props) {
-  const { companyId } = useAdminCompany();
   const [employees, setEmployees] = useState(initialEmployees);
   const [filterStoreId, setFilterStoreId] = useState(ALL_STORES_VALUE);
   const [search, setSearch] = useState("");
@@ -87,9 +94,9 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
   const refresh = async () => {
     const { data } = await supabase
       .from("employees")
-      .select("*, stores(id, name)")
+      .select(`${EMPLOYEE_SELECT_COLUMNS}, stores(id, name)`)
       .order("name");
-    setEmployees((data as EmployeeWithStore[]) ?? []);
+    setEmployees((data as unknown as EmployeeWithStore[]) ?? []);
   };
 
   const toggleStore = (storeId: string) => {
@@ -232,7 +239,6 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
                     <th className="px-5 py-3 font-medium">店舗名</th>
                     <th className="px-5 py-3 font-medium">社員コード</th>
                     <th className="px-5 py-3 font-medium">従業員名</th>
-                    <th className="px-5 py-3 font-medium">役職</th>
                     <th className="px-5 py-3 font-medium">時給</th>
                     <th className="px-5 py-3 font-medium">入社日</th>
                     <th className="px-5 py-3 font-medium">ステータス</th>
@@ -248,7 +254,6 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
                       <td className="px-5 py-4">{group.storeName}</td>
                       <td className="px-5 py-4 font-mono text-xs">{emp.employee_code}</td>
                       <td className="px-5 py-4 font-medium text-slate-900">{emp.name}</td>
-                      <td className="px-5 py-4">{emp.job_title ?? "—"}</td>
                       <td className="px-5 py-4">{formatYen(Number(emp.hourly_rate))}</td>
                       <td className="px-5 py-4">{getHireDate(emp)}</td>
                       <td className="px-5 py-4">
@@ -304,8 +309,8 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
                         <div>
                           <p className="font-mono text-xs text-slate-500">{emp.employee_code}</p>
                           <p className="mt-0.5 font-semibold text-slate-900">{emp.name}</p>
-                          <p className="mt-1 text-sm">{emp.job_title ?? "—"}</p>
                           <p className="mt-1 text-sm">時給 {formatYen(Number(emp.hourly_rate))}</p>
+                          <p className="mt-1 text-xs text-slate-500">登録日 {getHireDate(emp)}</p>
                           <div className="mt-2">
                             <StatusBadge active={emp.is_active} />
                           </div>
@@ -347,32 +352,25 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
           onSave={async (data) => {
             setSaving(true);
             setMessage(null);
-            const selectedStore = stores.find((s) => s.id === data.storeId);
-            const targetCompanyId = selectedStore?.company_id ?? companyId;
-            if (!targetCompanyId) {
-              setMessage("会社が特定できません");
-              setSaving(false);
-              return;
-            }
-            try {
-              await assertUniqueEmployeeCode(supabase, targetCompanyId, data.code.trim());
-            } catch (error) {
-              setMessage((error as Error).message);
-              setSaving(false);
-              return;
-            }
-            const { error } = await supabase.from("employees").insert({
-              name: data.name.trim(),
-              employee_code: data.code.trim(),
-              store_id: data.storeId,
-              company_id: targetCompanyId,
-              hourly_rate: Number(data.hourlyRate),
-              job_title: data.jobTitle.trim() || null,
-              hired_at: data.hiredAt || null,
+            const response = await fetch("/api/admin/employees", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: data.name,
+                employeeCode: data.code,
+                storeId: data.storeId,
+                hourlyRate: data.hourlyRate,
+              }),
             });
+            const payload = (await response.json()) as {
+              error?: string;
+              message?: string;
+              code?: string | null;
+              details?: string | null;
+            };
             setSaving(false);
-            if (error) {
-              setMessage(getEmployeeCodeErrorMessage(error));
+            if (!response.ok) {
+              setMessage(formatApiError(payload));
               return;
             }
             setShowAddModal(false);
@@ -397,30 +395,25 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
           onSave={async (data) => {
             setSaving(true);
             setMessage(null);
-            const trimmedCode = data.code.trim();
-            try {
-              await assertUniqueEmployeeCode(supabase, editTarget.company_id, trimmedCode, editTarget.id);
-            } catch (error) {
-              setMessage((error as Error).message);
-              setSaving(false);
-              return;
-            }
-            const selectedStore = stores.find((s) => s.id === data.storeId);
-            const { error } = await supabase
-              .from("employees")
-              .update({
-                name: data.name.trim(),
-                employee_code: trimmedCode,
-                store_id: data.storeId,
-                company_id: selectedStore?.company_id,
-                hourly_rate: Number(data.hourlyRate),
-                job_title: data.jobTitle.trim() || null,
-                hired_at: data.hiredAt || null,
-              })
-              .eq("id", editTarget.id);
+            const response = await fetch(`/api/admin/employees/${editTarget.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: data.name,
+                employeeCode: data.code,
+                storeId: data.storeId,
+                hourlyRate: data.hourlyRate,
+              }),
+            });
+            const payload = (await response.json()) as {
+              error?: string;
+              message?: string;
+              code?: string | null;
+              details?: string | null;
+            };
             setSaving(false);
-            if (error) {
-              setMessage(getEmployeeCodeErrorMessage(error));
+            if (!response.ok) {
+              setMessage(formatApiError(payload));
               return;
             }
             setEditTarget(null);
@@ -459,8 +452,6 @@ type FormData = {
   code: string;
   storeId: string;
   hourlyRate: string;
-  jobTitle: string;
-  hiredAt: string;
 };
 
 function EmployeeFormModal({
@@ -487,8 +478,6 @@ function EmployeeFormModal({
   const [code, setCode] = useState(employee?.employee_code ?? "");
   const [storeId, setStoreId] = useState(employee?.store_id ?? activeStores[0]?.id ?? "");
   const [hourlyRate, setHourlyRate] = useState(String(employee?.hourly_rate ?? "1000"));
-  const [jobTitle, setJobTitle] = useState(employee?.job_title ?? "");
-  const [hiredAt, setHiredAt] = useState(employee?.hired_at?.slice(0, 10) ?? "");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
@@ -502,7 +491,7 @@ function EmployeeFormModal({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void onSave({ name, code, storeId, hourlyRate, jobTitle, hiredAt });
+            void onSave({ name, code, storeId, hourlyRate });
           }}
           className="space-y-4"
         >
@@ -513,10 +502,6 @@ function EmployeeFormModal({
           <div>
             <label className="mb-1 block text-sm text-slate-600">社員コード</label>
             <Input value={code} onChange={(e) => setCode(e.target.value)} required />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-slate-600">役職</label>
-            <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ホール、キッチン など" />
           </div>
           <div>
             <label className="mb-1 block text-sm text-slate-600">所属店舗</label>
@@ -533,16 +518,15 @@ function EmployeeFormModal({
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">時給（円）</label>
-              <Input type="number" min={1} value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-600">入社日</label>
-              <Input type="date" value={hiredAt} onChange={(e) => setHiredAt(e.target.value)} />
-            </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-600">時給（円）</label>
+            <Input type="number" min={1} value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} required />
           </div>
+          {employee && (
+            <p className="text-sm text-slate-500">
+              登録日（入社日）: {formatJstDate(employee.created_at)}
+            </p>
+          )}
           {employee && onFaceRegister && (
             <Button type="button" variant="secondary" fullWidth onClick={onFaceRegister}>
               顔写真管理
