@@ -125,6 +125,14 @@ export async function getPayrollDiagnostics(
 
   const excludedRecords = allAnalyses.filter((item) => !item.included);
   const items: PayrollDiagnosticItem[] = [];
+  const scopedIds = [...scopedEmployeeIds];
+  const { data: payrollRows } = await supabase
+    .from("monthly_payroll")
+    .select("employee_id, calculated_at, total_pay, regular_hours, night_hours")
+    .eq("year", year)
+    .eq("month", month)
+    .in("employee_id", scopedIds.length > 0 ? scopedIds : ["00000000-0000-0000-0000-000000000000"]);
+  const payrollMap = new Map((payrollRows ?? []).map((row) => [row.employee_id, row]));
 
   for (const emp of employees ?? []) {
     const empRecords = records.filter((row) => row.employee_id === emp.id);
@@ -145,8 +153,31 @@ export async function getPayrollDiagnostics(
     );
 
     const payrollTotalHours = result.regularHours + result.nightHours;
+    const savedPayroll = payrollMap.get(emp.id);
     const issues: string[] = [];
 
+    if (!savedPayroll && closedRecords > 0) {
+      issues.push("monthly_payroll が未作成です（給与を計算してください）");
+    }
+    if (savedPayroll && closedRecords > 0) {
+      const latestClockOut = empRecords
+        .map((row) => row.clock_out)
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+      if (
+        latestClockOut &&
+        savedPayroll.calculated_at &&
+        new Date(savedPayroll.calculated_at) < new Date(latestClockOut)
+      ) {
+        issues.push("給与データが勤怠より古いです（再計算が必要です）");
+      }
+      const savedHours =
+        Number(savedPayroll.regular_hours ?? 0) + Number(savedPayroll.night_hours ?? 0);
+      if (payrollTotalHours > 0 && savedHours === 0) {
+        issues.push("勤怠はあるが保存済み給与計算時間が0です");
+      }
+    }
     if (openRecords > 0) {
       issues.push(`退勤未打刻が${openRecords}件あります`);
     }
@@ -167,7 +198,7 @@ export async function getPayrollDiagnostics(
       }
     }
 
-    if (issues.length === 0 && payrollTotalHours > 0) continue;
+    if (issues.length === 0 && payrollTotalHours > 0 && savedPayroll) continue;
 
     items.push({
       employeeId: emp.id,

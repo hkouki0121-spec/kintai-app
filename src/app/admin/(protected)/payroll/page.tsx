@@ -1,8 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { PayrollManager } from "@/components/admin/PayrollManager";
 import { getCompanyContext } from "@/lib/auth/company-context";
-import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
-import { syncPayrollFromAttendance } from "@/lib/payroll/sync-from-attendance";
+import { runAuthorizedPayrollSyncAndFetch } from "@/lib/payroll/run-authorized-sync";
 import { fetchActiveStores, isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 
@@ -20,7 +19,6 @@ export default async function PayrollPage({
   const supabase = await createClient();
   const context = await getCompanyContext(supabase);
   const stores = await fetchActiveStores(supabase);
-  const companyId = context?.isSuperAdmin ? null : context?.companyId ?? null;
 
   let storeLabel = "全店舗";
   if (!isAllStores(storeId)) {
@@ -28,22 +26,22 @@ export default async function PayrollPage({
     storeLabel = matched?.name ?? storeId;
   }
 
-  await syncPayrollFromAttendance(
-    supabase,
-    year,
-    month,
-    isAllStores(storeId) ? null : storeId,
-    companyId,
-    storeLabel
-  );
-
-  const payroll = await fetchPayrollForPeriod(
-    supabase,
-    year,
-    month,
-    isAllStores(storeId) ? null : storeId,
-    companyId
-  );
+  let payroll: Awaited<ReturnType<typeof runAuthorizedPayrollSyncAndFetch>>["payroll"] = [];
+  if (context) {
+    try {
+      const synced = await runAuthorizedPayrollSyncAndFetch(
+        supabase,
+        context,
+        year,
+        month,
+        isAllStores(storeId) ? null : storeId,
+        storeLabel
+      );
+      payroll = synced.payroll;
+    } catch (error) {
+      console.error("[payroll/page] sync failed", error);
+    }
+  }
 
   return (
     <div className="space-y-6">

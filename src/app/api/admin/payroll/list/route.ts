@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/lib/auth/company-context";
 import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { isAllStores } from "@/lib/stores/queries";
 
@@ -23,8 +24,9 @@ export async function GET(request: Request) {
   }
 
   try {
+    const serviceSupabase = createServiceClient();
     const payroll = await fetchPayrollForPeriod(
-      supabase,
+      serviceSupabase,
       year,
       month,
       isAllStores(storeId) ? null : storeId,

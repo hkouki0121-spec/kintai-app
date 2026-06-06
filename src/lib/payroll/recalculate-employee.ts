@@ -36,11 +36,18 @@ export async function recalculateEmployeeMonthlyPayroll(
   if (empError) return { ok: false, error: empError.message };
   if (!employee) return { ok: false, error: "従業員が見つかりません" };
 
-  const { data: company } = await supabase
+  const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("payroll_rounding_minutes")
     .eq("id", employee.company_id)
     .maybeSingle();
+  if (companyError) {
+    console.warn("[payroll/recalculate] company settings unavailable", {
+      employeeId,
+      companyId: employee.company_id,
+      message: companyError.message,
+    });
+  }
 
   const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
 

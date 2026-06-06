@@ -83,6 +83,12 @@ export function PayrollManager({
           processed?: number;
           errors?: string[];
           payroll?: PayrollWithEmployee[];
+          employeeLogs?: Array<{
+            employee_name: string;
+            upsert_ok: boolean;
+            error?: string;
+            excluded_reason: string[];
+          }>;
           error?: string;
         };
         if (!res.ok) {
@@ -94,7 +100,12 @@ export function PayrollManager({
           await loadPayroll(y, m, store);
         }
         await loadDiagnostics(y, m, store);
-        return { processed: data.processed ?? 0, errors: data.errors ?? [] };
+        const failedEmployees =
+          data.employeeLogs?.filter((log) => !log.upsert_ok).map((log) => log.employee_name) ?? [];
+        return {
+          processed: data.processed ?? 0,
+          errors: [...(data.errors ?? []), ...failedEmployees.map((name) => `${name}: 給与保存に失敗`)],
+        };
       } finally {
         if (!silent) setSyncing(false);
       }

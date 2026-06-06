@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/lib/auth/company-context";
-import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
-import { syncPayrollFromAttendance } from "@/lib/payroll/sync-from-attendance";
+import { runAuthorizedPayrollSyncAndFetch } from "@/lib/payroll/run-authorized-sync";
 import { createClient } from "@/lib/supabase/server";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { isAllStores } from "@/lib/stores/queries";
@@ -45,23 +44,14 @@ export async function POST(request: Request) {
     storeLabel = store?.name ?? storeId;
   }
 
-  const companyId = context.isSuperAdmin ? null : context.companyId;
-
   try {
-    const result = await syncPayrollFromAttendance(
+    const { result, payroll } = await runAuthorizedPayrollSyncAndFetch(
       supabase,
+      context,
       year,
       month,
       isAllStores(storeId) ? null : storeId,
-      companyId,
       storeLabel
-    );
-    const payroll = await fetchPayrollForPeriod(
-      supabase,
-      year,
-      month,
-      isAllStores(storeId) ? null : storeId,
-      companyId
     );
 
     return NextResponse.json({

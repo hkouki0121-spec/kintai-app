@@ -4,15 +4,32 @@ import {
   summarizeExclusionReasons,
   type AttendancePayrollAnalysis,
 } from "@/lib/payroll/analyze-attendance";
+import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
 import { collectPayrollTargetEmployeeIds } from "@/lib/payroll/collect-targets";
 import { getJstMonthBounds } from "@/lib/payroll/jst-month";
 import { recalculateEmployeeMonthlyPayroll } from "@/lib/payroll/recalculate-employee";
 import { getPayrollSettings, normalizePayrollRoundingMinutes } from "@/lib/payroll/settings";
 import { isAllStores } from "@/lib/stores/queries";
 
+export type EmployeePayrollLog = {
+  employee_name: string;
+  employee_id: string;
+  attendance_count: number;
+  included_count: number;
+  excluded_count: number;
+  excluded_reason: string[];
+  regular_hours: number;
+  night_hours: number;
+  payroll_hours: number;
+  total_pay: number;
+  upsert_ok: boolean;
+  error?: string;
+};
+
 export type PayrollSyncResult = {
   processed: number;
   errors: string[];
+  employeeLogs: EmployeePayrollLog[];
   stats: {
     year: number;
     month: number;
@@ -32,61 +49,34 @@ async function resolveRoundingMinutes(
   companyId?: string | null
 ): Promise<number> {
   if (!companyId) return 30;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("companies")
     .select("payroll_rounding_minutes")
     .eq("id", companyId)
     .maybeSingle();
+  if (error) return 30;
   return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
 }
 
-async function analyzeAttendanceInScope(
+async function fetchEmployeeAttendanceInMonth(
   supabase: SupabaseClient,
+  employeeId: string,
   year: number,
-  month: number,
-  storeId?: string | null,
-  companyId?: string | null
-): Promise<AttendancePayrollAnalysis[]> {
+  month: number
+) {
   const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
-  const roundingMinutes = normalizePayrollRoundingMinutes(
-    await resolveRoundingMinutes(supabase, companyId)
-  );
-  const settings = getPayrollSettings(roundingMinutes);
-
-  let attendanceQuery = supabase
+  const { data, error } = await supabase
     .from("attendance_records")
     .select("id, employee_id, store_id, company_id, clock_in, clock_out")
+    .eq("employee_id", employeeId)
     .lt("clock_in", monthEnd.toISOString())
     .or(`clock_out.gt.${monthStart.toISOString()},clock_out.is.null`);
-
-  if (companyId) {
-    attendanceQuery = attendanceQuery.eq("company_id", companyId);
-  }
-  if (!isAllStores(storeId)) {
-    attendanceQuery = attendanceQuery.eq("store_id", storeId!);
-  }
-
-  const { data: records, error } = await attendanceQuery;
   if (error) throw error;
-  if (!records?.length) return [];
+  return data ?? [];
+}
 
-  const employeeIds = [...new Set(records.map((row) => row.employee_id))];
-  const { data: employees } = await supabase
-    .from("employees")
-    .select("id, company_id, store_id, name, employee_code")
-    .in("id", employeeIds);
-
-  const employeeMap = new Map((employees ?? []).map((emp) => [emp.id, emp]));
-
-  return records.map((record) =>
-    analyzeAttendanceRecordForPayroll(
-      record,
-      employeeMap.get(record.employee_id) ?? null,
-      year,
-      month,
-      settings.roundingMinutes
-    )
-  );
+function logEmployeePayrollResult(log: EmployeePayrollLog) {
+  console.log("[payroll/calculate]", log);
 }
 
 /** 表示中の月について、勤怠から給与を再計算 */
@@ -98,10 +88,8 @@ export async function syncPayrollFromAttendance(
   companyId?: string | null,
   storeLabel = "全店舗"
 ): Promise<PayrollSyncResult> {
-  const analyses = await analyzeAttendanceInScope(supabase, year, month, storeId, companyId);
-  const attendanceIncluded = analyses.filter((item) => item.included).length;
-  const attendanceExcluded = analyses.length - attendanceIncluded;
-  const exclusionReasons = summarizeExclusionReasons(analyses);
+  const roundingMinutes = await resolveRoundingMinutes(supabase, companyId);
+  const settings = getPayrollSettings(roundingMinutes);
 
   const targetEmployeeIds = await collectPayrollTargetEmployeeIds(
     supabase,
@@ -111,19 +99,78 @@ export async function syncPayrollFromAttendance(
     companyId
   );
 
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active")
+    .in("id", targetEmployeeIds.length > 0 ? targetEmployeeIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const employeeMap = new Map((employees ?? []).map((emp) => [emp.id, emp]));
   const errors: string[] = [];
+  const employeeLogs: EmployeePayrollLog[] = [];
   let processed = 0;
+  let attendanceRecordsTotal = 0;
+  let attendanceIncluded = 0;
+  let attendanceExcluded = 0;
+  const allAnalyses: AttendancePayrollAnalysis[] = [];
 
   for (const employeeId of targetEmployeeIds) {
+    const employee = employeeMap.get(employeeId);
+    const records = await fetchEmployeeAttendanceInMonth(supabase, employeeId, year, month);
+    const analyses = records.map((record) =>
+      analyzeAttendanceRecordForPayroll(
+        record,
+        employee ?? null,
+        year,
+        month,
+        settings.roundingMinutes
+      )
+    );
+
+    allAnalyses.push(...analyses);
+    attendanceRecordsTotal += analyses.length;
+    attendanceIncluded += analyses.filter((item) => item.included).length;
+    attendanceExcluded += analyses.filter((item) => !item.included).length;
+
+    const payrollPreview = calculateEmployeePayroll(
+      employeeId,
+      Number(employee?.hourly_rate ?? 0),
+      records,
+      year,
+      month,
+      settings
+    );
+
     const result = await recalculateEmployeeMonthlyPayroll(supabase, employeeId, year, month);
+    const excludedReasons = analyses
+      .filter((item) => !item.included && item.reason)
+      .map((item) => `${item.clockIn.slice(0, 16)}: ${item.reason}`);
+
+    const log: EmployeePayrollLog = {
+      employee_name: employee?.name ?? "不明",
+      employee_id: employeeId,
+      attendance_count: records.length,
+      included_count: analyses.filter((item) => item.included).length,
+      excluded_count: analyses.filter((item) => !item.included).length,
+      excluded_reason: excludedReasons,
+      regular_hours: payrollPreview.regularHours,
+      night_hours: payrollPreview.nightHours,
+      payroll_hours: payrollPreview.regularHours + payrollPreview.nightHours,
+      total_pay: payrollPreview.totalPay,
+      upsert_ok: result.ok,
+      error: result.ok ? undefined : result.error,
+    };
+    logEmployeePayrollResult(log);
+    employeeLogs.push(log);
+
     if (!result.ok) {
-      errors.push(`${employeeId}: ${result.error}`);
+      errors.push(`${employee?.name ?? employeeId}: ${result.error}`);
     } else {
       processed += 1;
     }
   }
 
-  const excludedSamples = analyses
+  const exclusionReasons = summarizeExclusionReasons(allAnalyses);
+  const excludedSamples = allAnalyses
     .filter((item) => !item.included && item.reason)
     .slice(0, 20)
     .map(
@@ -136,7 +183,7 @@ export async function syncPayrollFromAttendance(
     month,
     storeId: isAllStores(storeId) ? null : (storeId ?? null),
     storeLabel,
-    attendanceRecordsTotal: analyses.length,
+    attendanceRecordsTotal,
     attendanceIncluded,
     attendanceExcluded,
     exclusionReasons,
@@ -146,7 +193,7 @@ export async function syncPayrollFromAttendance(
   console.log("[payroll/calculate]", {
     対象年月: `${year}年${month}月`,
     対象店舗: storeLabel,
-    取得したattendance_records件数: analyses.length,
+    取得したattendance_records件数: attendanceRecordsTotal,
     給与計算対象になった件数: attendanceIncluded,
     除外された件数: attendanceExcluded,
     除外理由: exclusionReasons,
@@ -162,5 +209,5 @@ export async function syncPayrollFromAttendance(
     console.log("[payroll/calculate] エラー", errors);
   }
 
-  return { processed, errors, stats, excludedSamples };
+  return { processed, errors, employeeLogs, stats, excludedSamples };
 }

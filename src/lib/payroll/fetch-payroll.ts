@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectPayrollTargetEmployeeIds } from "@/lib/payroll/collect-targets";
+import { recalculateEmployeeMonthlyPayroll } from "@/lib/payroll/recalculate-employee";
 import type { PayrollWithEmployee } from "@/types/database";
 
 export async function fetchPayrollForPeriod(
@@ -35,5 +36,23 @@ export async function fetchPayrollForPeriod(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data as unknown as PayrollWithEmployee[]) ?? [];
+
+  const rows = (data as unknown as PayrollWithEmployee[]) ?? [];
+  const existingIds = new Set(rows.map((row) => row.employee_id));
+  const missingIds = targetIds.filter((id) => !existingIds.has(id));
+
+  for (const employeeId of missingIds) {
+    const result = await recalculateEmployeeMonthlyPayroll(supabase, employeeId, year, month);
+    if (!result.ok) {
+      console.error("[payroll/fetch] recalculate failed", { employeeId, error: result.error });
+    }
+  }
+
+  if (missingIds.length === 0) {
+    return rows;
+  }
+
+  const { data: refreshed, error: refreshError } = await query;
+  if (refreshError) throw refreshError;
+  return (refreshed as unknown as PayrollWithEmployee[]) ?? rows;
 }
