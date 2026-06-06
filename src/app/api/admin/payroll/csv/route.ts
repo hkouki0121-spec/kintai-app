@@ -9,6 +9,7 @@ import {
   payrollRowsToCsvRows,
   isAllStores,
 } from "@/lib/csv/payroll-csv-query";
+import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
 import { createClient } from "@/lib/supabase/server";
 import type { PayrollWithEmployee } from "@/types/database";
 
@@ -59,37 +60,17 @@ export async function GET(request: Request) {
     }
   }
 
-  let query = supabase
-    .from("monthly_payroll")
-    .select(
-      "*, companies(name), employees(id, name, employee_code, hourly_rate, store_id, stores(id, name))"
-    )
-    .eq("year", year)
-    .eq("month", month)
-    .eq("company_id", context.companyId)
-    .order("total_pay", { ascending: false });
-
-  if (!isAllStores(storeId)) {
-    query = supabase
-      .from("monthly_payroll")
-      .select(
-        "*, companies(name), employees!inner(id, name, employee_code, hourly_rate, store_id, stores(id, name))"
-      )
-      .eq("year", year)
-      .eq("month", month)
-      .eq("company_id", context.companyId)
-      .eq("employees.store_id", storeId)
-      .order("total_pay", { ascending: false });
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
+  let payroll: PayrollWithCompany[];
+  try {
+    const rows = await fetchPayrollForPeriod(supabase, year, month, storeId, context.companyId);
+    payroll = rows.map((row) => ({
+      ...row,
+      companies: context.companyName ? { name: context.companyName } : null,
+    }));
+  } catch (error) {
     console.error("[payroll/csv]", error);
     return NextResponse.json({ error: CSV_EXPORT_ERROR }, { status: 500 });
   }
-
-  const payroll = (data as PayrollWithCompany[]) ?? [];
   if (payroll.length === 0) {
     return NextResponse.json({ error: "出力する給与データがありません" }, { status: 404 });
   }

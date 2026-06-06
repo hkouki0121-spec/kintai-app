@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { PayrollManager } from "@/components/admin/PayrollManager";
+import { getCompanyContext } from "@/lib/auth/company-context";
+import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
+import { syncPayrollFromAttendance } from "@/lib/payroll/sync-from-attendance";
 import { fetchActiveStores, isAllStores } from "@/lib/stores/queries";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
-import type { PayrollWithEmployee } from "@/types/database";
 
 export default async function PayrollPage({
   searchParams,
@@ -16,26 +18,32 @@ export default async function PayrollPage({
   const storeId = params.store ?? ALL_STORES_VALUE;
 
   const supabase = await createClient();
+  const context = await getCompanyContext(supabase);
   const stores = await fetchActiveStores(supabase);
+  const companyId = context?.isSuperAdmin ? null : context?.companyId ?? null;
 
-  let query = supabase
-    .from("monthly_payroll")
-    .select("*, employees(id, name, employee_code, store_id, stores(id, name))")
-    .eq("year", year)
-    .eq("month", month)
-    .order("total_pay", { ascending: false });
-
+  let storeLabel = "全店舗";
   if (!isAllStores(storeId)) {
-    query = supabase
-      .from("monthly_payroll")
-      .select("*, employees!inner(id, name, employee_code, store_id, stores(id, name))")
-      .eq("year", year)
-      .eq("month", month)
-      .eq("employees.store_id", storeId)
-      .order("total_pay", { ascending: false });
+    const matched = stores.find((store) => store.id === storeId);
+    storeLabel = matched?.name ?? storeId;
   }
 
-  const { data } = await query;
+  await syncPayrollFromAttendance(
+    supabase,
+    year,
+    month,
+    isAllStores(storeId) ? null : storeId,
+    companyId,
+    storeLabel
+  );
+
+  const payroll = await fetchPayrollForPeriod(
+    supabase,
+    year,
+    month,
+    isAllStores(storeId) ? null : storeId,
+    companyId
+  );
 
   return (
     <div className="space-y-6">
@@ -46,7 +54,7 @@ export default async function PayrollPage({
       <PayrollManager
         stores={stores}
         initialStoreId={storeId}
-        initialPayroll={(data as PayrollWithEmployee[]) ?? []}
+        initialPayroll={payroll}
         initialYear={year}
         initialMonth={month}
       />
