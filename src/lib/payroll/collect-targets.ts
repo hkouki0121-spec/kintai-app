@@ -1,34 +1,37 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAttendanceRecordsInScope } from "@/lib/payroll/attendance-query";
+import type { PayrollScope } from "@/lib/payroll/resolve-scope";
 import { isAllStores } from "@/lib/stores/queries";
 
 /** 給与再計算・表示の対象従業員ID（勤怠ベース + 店舗所属の在籍者） */
 export async function collectPayrollTargetEmployeeIds(
-  supabase: SupabaseClient,
+  readSupabase: SupabaseClient,
   year: number,
   month: number,
-  storeId?: string | null,
-  companyId?: string | null
+  scope: PayrollScope,
+  readMode: "rls" | "service" = "rls"
 ): Promise<string[]> {
   const ids = new Set<string>();
 
-  const attendanceRows = await fetchAttendanceRecordsInScope(
-    supabase,
+  const { records } = await fetchAttendanceRecordsInScope(
+    readSupabase,
     year,
     month,
-    storeId,
-    companyId
+    scope,
+    readMode
   );
-  for (const row of attendanceRows) {
+  for (const row of records) {
     ids.add(row.employee_id);
   }
 
-  let employeeQuery = supabase.from("employees").select("id").eq("is_active", true);
-  if (companyId) {
-    employeeQuery = employeeQuery.eq("company_id", companyId);
-  }
-  if (!isAllStores(storeId)) {
-    employeeQuery = employeeQuery.eq("store_id", storeId!);
+  let employeeQuery = readSupabase.from("employees").select("id").eq("is_active", true);
+
+  if (!isAllStores(scope.storeId)) {
+    employeeQuery = employeeQuery.eq("store_id", scope.storeId!);
+  } else if (readMode === "service" && scope.accessibleStoreIds.length > 0) {
+    employeeQuery = employeeQuery.in("store_id", scope.accessibleStoreIds);
+  } else if (readMode === "service" && scope.dataCompanyIds.length > 0) {
+    employeeQuery = employeeQuery.in("company_id", scope.dataCompanyIds);
   }
 
   const { data: employeeRows, error: employeeError } = await employeeQuery;

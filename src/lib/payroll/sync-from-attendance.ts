@@ -4,19 +4,18 @@ import {
   summarizeExclusionReasons,
   type AttendancePayrollAnalysis,
 } from "@/lib/payroll/analyze-attendance";
-import {
-  fetchAttendanceRecordsInScope,
-  fetchEmployeeAttendanceInMonth,
-} from "@/lib/payroll/attendance-query";
+import { fetchAttendanceRecordsInScope } from "@/lib/payroll/attendance-query";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
 import { collectPayrollTargetEmployeeIds } from "@/lib/payroll/collect-targets";
+import { fetchEmployeeAttendanceInMonth } from "@/lib/payroll/attendance-query";
+import { getPayrollMonthRange } from "@/lib/payroll/month-range";
+import type { PayrollScope } from "@/lib/payroll/resolve-scope";
 import { recalculateEmployeeMonthlyPayroll } from "@/lib/payroll/recalculate-employee";
 import {
   getPayrollSettings,
   normalizePayrollRoundingMinutes,
   type PayrollRoundingMinutes,
 } from "@/lib/payroll/settings";
-import { isAllStores } from "@/lib/stores/queries";
 
 export type EmployeePayrollLog = {
   employee_name: string;
@@ -55,16 +54,23 @@ export type PayrollSyncResult = {
 
 async function resolveRoundingMinutes(
   supabase: SupabaseClient,
-  companyId?: string | null
+  dataCompanyIds: string[],
+  attendanceRecords: { company_id: string }[]
 ): Promise<PayrollRoundingMinutes> {
-  if (!companyId) return 30;
-  const { data, error } = await supabase
-    .from("companies")
-    .select("payroll_rounding_minutes")
-    .eq("id", companyId)
-    .maybeSingle();
-  if (error) return 30;
-  return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
+  const companyIds =
+    dataCompanyIds.length > 0
+      ? dataCompanyIds
+      : [...new Set(attendanceRecords.map((row) => row.company_id))];
+
+  if (companyIds.length === 1) {
+    const { data, error } = await supabase
+      .from("companies")
+      .select("payroll_rounding_minutes")
+      .eq("id", companyIds[0])
+      .maybeSingle();
+    if (!error) return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
+  }
+  return 30;
 }
 
 function analyzeRecords(
@@ -94,33 +100,40 @@ function analyzeRecords(
 
 /** 表示中の月について、勤怠から給与を再計算して monthly_payroll を上書き */
 export async function syncPayrollFromAttendance(
-  supabase: SupabaseClient,
+  readSupabase: SupabaseClient,
+  writeSupabase: SupabaseClient,
   year: number,
   month: number,
-  storeId?: string | null,
-  companyId?: string | null,
-  storeLabel = "全店舗"
+  scope: PayrollScope,
+  storeLabel = "全店舗",
+  readMode: "rls" | "service" = "rls"
 ): Promise<PayrollSyncResult> {
-  const roundingMinutes = await resolveRoundingMinutes(supabase, companyId);
+  const range = getPayrollMonthRange(year, month);
+  const attendanceResult = await fetchAttendanceRecordsInScope(
+    readSupabase,
+    year,
+    month,
+    scope,
+    readMode
+  );
+  const scopedAttendance = attendanceResult.records;
+
+  const roundingMinutes = await resolveRoundingMinutes(
+    writeSupabase,
+    scope.dataCompanyIds,
+    scopedAttendance
+  );
   const settings = getPayrollSettings(roundingMinutes);
 
-  const scopedAttendance = await fetchAttendanceRecordsInScope(
-    supabase,
-    year,
-    month,
-    storeId,
-    companyId
-  );
-
   const targetEmployeeIds = await collectPayrollTargetEmployeeIds(
-    supabase,
+    readSupabase,
     year,
     month,
-    storeId,
-    companyId
+    scope,
+    readMode
   );
 
-  const { data: employees } = await supabase
+  const { data: employees } = await writeSupabase
     .from("employees")
     .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active")
     .in("id", targetEmployeeIds.length > 0 ? targetEmployeeIds : ["00000000-0000-0000-0000-000000000000"]);
@@ -131,20 +144,19 @@ export async function syncPayrollFromAttendance(
   const allAnalyses: AttendancePayrollAnalysis[] = [];
   let processed = 0;
 
+  const recordsByEmployee = new Map<string, typeof scopedAttendance>();
+  for (const record of scopedAttendance) {
+    const list = recordsByEmployee.get(record.employee_id) ?? [];
+    list.push(record);
+    recordsByEmployee.set(record.employee_id, list);
+  }
+
   for (const employeeId of targetEmployeeIds) {
     const employee = employeeMap.get(employeeId);
-    const allRecords = await fetchEmployeeAttendanceInMonth(supabase, employeeId, year, month);
-    const displayRecords = isAllStores(storeId)
-      ? allRecords
-      : allRecords.filter((record) => record.store_id === storeId);
+    const allRecords = await fetchEmployeeAttendanceInMonth(readSupabase, employeeId, year, month);
+    const displayRecords = recordsByEmployee.get(employeeId) ?? [];
 
-    const analyses = analyzeRecords(
-      displayRecords,
-      employee,
-      year,
-      month,
-      settings.roundingMinutes
-    );
+    const analyses = analyzeRecords(displayRecords, employee, year, month, settings.roundingMinutes);
     allAnalyses.push(...analyses);
 
     const payrollPreview = calculateEmployeePayroll(
@@ -156,7 +168,7 @@ export async function syncPayrollFromAttendance(
       settings
     );
 
-    const result = await recalculateEmployeeMonthlyPayroll(supabase, employeeId, year, month);
+    const result = await recalculateEmployeeMonthlyPayroll(writeSupabase, employeeId, year, month);
     const excludedReasons = analyses
       .filter((item) => !item.included && item.reason)
       .map((item) => `${item.clockIn.slice(0, 16)}: ${item.reason}`);
@@ -191,25 +203,24 @@ export async function syncPayrollFromAttendance(
   const exclusionReasons = summarizeExclusionReasons(allAnalyses);
   const excludedRecords = allAnalyses.filter((item) => !item.included);
 
-  const stats = {
-    companyId: companyId ?? null,
-    storeId: isAllStores(storeId) ? null : (storeId ?? null),
-    storeLabel,
-    year,
-    month,
-    attendanceRecordsTotal: scopedAttendance.length,
-    attendanceIncluded,
-    attendanceExcluded,
-    exclusionReasons,
-    targetEmployeeCount: targetEmployeeIds.length,
-  };
-
   console.log("[payroll/calculate]", {
-    companyId: stats.companyId,
-    storeId: stats.storeId,
+    adminUserId: scope.adminUserId,
+    adminCompanyId: scope.adminCompanyId,
+    storeId: scope.storeId,
     year,
     month,
-    attendance_records_count: stats.attendanceRecordsTotal,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
+    attendanceQuery: attendanceResult.meta.filterDescription,
+    attendance_records_count: scopedAttendance.length,
+    attendance_records_sample: scopedAttendance.slice(0, 5).map((row) => ({
+      id: row.id,
+      employee_id: row.employee_id,
+      store_id: row.store_id,
+      company_id: row.company_id,
+      clock_in: row.clock_in,
+      clock_out: row.clock_out,
+    })),
     included_count: attendanceIncluded,
     excluded_count: attendanceExcluded,
     employee_results: employeeLogs,
@@ -219,7 +230,23 @@ export async function syncPayrollFromAttendance(
       clock_in: item.clockIn,
       reason: item.reason,
     })),
+    "error.message": attendanceResult.error?.message ?? null,
+    "error.code": attendanceResult.error?.code ?? null,
+    "error.details": attendanceResult.error?.details ?? null,
   });
+
+  const stats = {
+    companyId: scope.adminCompanyId,
+    storeId: scope.storeId,
+    storeLabel,
+    year,
+    month,
+    attendanceRecordsTotal: scopedAttendance.length,
+    attendanceIncluded,
+    attendanceExcluded,
+    exclusionReasons,
+    targetEmployeeCount: targetEmployeeIds.length,
+  };
 
   const excludedSamples = excludedRecords
     .slice(0, 30)

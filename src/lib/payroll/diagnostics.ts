@@ -9,8 +9,8 @@ import {
 } from "@/lib/payroll/attendance-query";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
 import { getPayrollSettings, normalizePayrollRoundingMinutes } from "@/lib/payroll/settings";
+import type { PayrollScope } from "@/lib/payroll/resolve-scope";
 import type { EmployeePayrollLog } from "@/lib/payroll/sync-from-attendance";
-import { isAllStores } from "@/lib/stores/queries";
 
 export type PayrollDiagnosticItem = {
   employeeId: string;
@@ -32,6 +32,13 @@ export type PayrollDiagnostics = {
   items: PayrollDiagnosticItem[];
   employeeResults: EmployeePayrollLog[];
   excludedRecords: AttendancePayrollAnalysis[];
+  queryMeta: {
+    dateFrom: string;
+    dateTo: string;
+    filterDescription: string;
+    dataCompanyIds: string[];
+    accessibleStoreIds: string[];
+  };
   summary: {
     employeesWithAttendance: number;
     employeesWithOpenShifts: number;
@@ -45,65 +52,45 @@ export type PayrollDiagnostics = {
   };
 };
 
-async function resolveRoundingMinutes(
-  supabase: SupabaseClient,
-  companyId?: string | null,
-  companyIds?: string[]
-): Promise<number> {
-  if (companyId) {
-    const { data, error } = await supabase
-      .from("companies")
-      .select("payroll_rounding_minutes")
-      .eq("id", companyId)
-      .maybeSingle();
-    if (error) return 30;
-    return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
-  }
-  if (companyIds?.length === 1) {
-    const { data, error } = await supabase
-      .from("companies")
-      .select("payroll_rounding_minutes")
-      .eq("id", companyIds[0])
-      .maybeSingle();
-    if (error) return 30;
-    return normalizePayrollRoundingMinutes(data?.payroll_rounding_minutes);
-  }
-  return 30;
-}
-
 export async function getPayrollDiagnostics(
-  supabase: SupabaseClient,
+  readSupabase: SupabaseClient,
+  writeSupabase: SupabaseClient,
   year: number,
   month: number,
-  storeId?: string | null,
-  companyId?: string | null
+  scope: PayrollScope
 ): Promise<PayrollDiagnostics> {
-  const records = await fetchAttendanceRecordsInScope(supabase, year, month, storeId, companyId);
+  const attendanceResult = await fetchAttendanceRecordsInScope(
+    readSupabase,
+    year,
+    month,
+    scope,
+    "rls"
+  );
+  const records = attendanceResult.records;
   const employeeIds = [...new Set(records.map((row) => row.employee_id))];
 
-  let employeeQuery = supabase
-    .from("employees")
-    .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active");
-
-  if (companyId) {
-    employeeQuery = employeeQuery.eq("company_id", companyId);
-  }
-
-  const { data: companyEmployees } = await employeeQuery;
-  const scopedEmployeeIds = new Set(employeeIds);
-  for (const emp of companyEmployees ?? []) {
-    if (!isAllStores(storeId) && emp.store_id !== storeId) continue;
-    if (emp.is_active) scopedEmployeeIds.add(emp.id);
-  }
-
-  const { data: employees } = await supabase
+  const { data: employees } = await readSupabase
     .from("employees")
     .select("id, name, employee_code, hourly_rate, company_id, store_id, is_active")
-    .in("id", [...scopedEmployeeIds]);
+    .in("id", employeeIds.length > 0 ? employeeIds : ["00000000-0000-0000-0000-000000000000"]);
 
   const employeeMap = new Map((employees ?? []).map((emp) => [emp.id, emp]));
-  const companyIds = [...new Set((employees ?? []).map((emp) => emp.company_id))];
-  const roundingMinutes = await resolveRoundingMinutes(supabase, companyId, companyIds);
+  const dataCompanyIds =
+    scope.dataCompanyIds.length > 0
+      ? scope.dataCompanyIds
+      : [...new Set(records.map((row) => row.company_id))];
+
+  const roundingMinutes = normalizePayrollRoundingMinutes(
+    dataCompanyIds.length === 1
+      ? (
+          await writeSupabase
+            .from("companies")
+            .select("payroll_rounding_minutes")
+            .eq("id", dataCompanyIds[0])
+            .maybeSingle()
+        ).data?.payroll_rounding_minutes
+      : 30
+  );
   const settings = getPayrollSettings(roundingMinutes);
 
   const allAnalyses: AttendancePayrollAnalysis[] = records.map((record) =>
@@ -124,12 +111,12 @@ export async function getPayrollDiagnostics(
     return acc;
   }, {});
 
-  const { data: payrollRows } = await supabase
+  const { data: payrollRows } = await writeSupabase
     .from("monthly_payroll")
     .select("employee_id, calculated_at, total_pay, regular_hours, night_hours")
     .eq("year", year)
     .eq("month", month)
-    .in("employee_id", [...scopedEmployeeIds]);
+    .in("employee_id", employeeIds.length > 0 ? employeeIds : ["00000000-0000-0000-0000-000000000000"]);
 
   const payrollMap = new Map((payrollRows ?? []).map((row) => [row.employee_id, row]));
   const items: PayrollDiagnosticItem[] = [];
@@ -147,7 +134,7 @@ export async function getPayrollDiagnostics(
     const closedRecords = empRecords.length - openRecords;
     const empExcluded = empAnalyses.filter((item) => !item.included);
 
-    const allEmpRecords = await fetchEmployeeAttendanceInMonth(supabase, emp.id, year, month);
+    const allEmpRecords = await fetchEmployeeAttendanceInMonth(readSupabase, emp.id, year, month);
     const result = calculateEmployeePayroll(
       emp.id,
       Number(emp.hourly_rate),
@@ -229,6 +216,13 @@ export async function getPayrollDiagnostics(
     items,
     employeeResults,
     excludedRecords,
+    queryMeta: {
+      dateFrom: attendanceResult.meta.dateFrom,
+      dateTo: attendanceResult.meta.dateTo,
+      filterDescription: attendanceResult.meta.filterDescription,
+      dataCompanyIds: scope.dataCompanyIds,
+      accessibleStoreIds: scope.accessibleStoreIds,
+    },
     summary: {
       employeesWithAttendance: employeesWithAttendance.size,
       employeesWithOpenShifts: items.filter((item) => item.openRecords > 0).length,

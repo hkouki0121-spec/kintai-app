@@ -6,7 +6,7 @@ import {
   TIMEZONE,
 } from "@/lib/constants";
 import { floorYen } from "@/lib/payroll/floor-yen";
-import { getJstMonthBounds } from "@/lib/payroll/jst-month";
+import { getPayrollMonthRange } from "@/lib/payroll/month-range";
 import {
   isWorkSegmentEligible,
   roundMinutesForPayroll,
@@ -92,7 +92,7 @@ export function calculateEmployeePayroll(
   month: number,
   settings: PayrollSettings = getPayrollSettings()
 ): PayrollResult {
-  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
+  const { dateFrom, dateTo } = getPayrollMonthRange(year, month);
   const roundingMinutes = settings.roundingMinutes;
 
   let actualRegularMinutes = 0;
@@ -104,15 +104,11 @@ export function calculateEmployeePayroll(
 
   for (const record of records) {
     if (!record.clock_out) continue;
+    if (record.clock_in < dateFrom || record.clock_in >= dateTo) continue;
+
     const clockIn = new Date(record.clock_in);
     const clockOut = new Date(record.clock_out);
-    if (clockOut <= monthStart || clockIn > monthEnd) continue;
-
-    const effectiveIn = clockIn < monthStart ? monthStart : clockIn;
-    const effectiveOut = clockOut > monthEnd ? monthEnd : clockOut;
-    if (effectiveOut <= effectiveIn) continue;
-
-    const segment = splitWorkMinutes(effectiveIn, effectiveOut);
+    const segment = splitWorkMinutes(clockIn, clockOut);
     if (!isWorkSegmentEligible(segment.regularMinutes, segment.nightMinutes)) {
       continue;
     }
@@ -122,7 +118,7 @@ export function calculateEmployeePayroll(
     payrollRegularMinutes += roundMinutesForPayroll(segment.regularMinutes, roundingMinutes);
     payrollNightMinutes += roundMinutesForPayroll(segment.nightMinutes, roundingMinutes);
 
-    for (const [dayKey, daySegment] of splitWorkMinutesByDay(effectiveIn, effectiveOut)) {
+    for (const [dayKey, daySegment] of splitWorkMinutesByDay(clockIn, clockOut)) {
       if (!isDateInMonth(dayKey, year, month)) continue;
       const dayTotal = daySegment.regularMinutes + daySegment.nightMinutes;
       if (dayTotal <= 0) continue;

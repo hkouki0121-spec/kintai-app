@@ -1,5 +1,5 @@
 import { splitWorkMinutes } from "@/lib/payroll/calculate";
-import { getJstMonthBounds } from "@/lib/payroll/jst-month";
+import { getPayrollMonthRange } from "@/lib/payroll/month-range";
 import {
   isWorkSegmentEligible,
   MIN_PAYROLL_WORK_MINUTES,
@@ -70,21 +70,15 @@ export function analyzeAttendanceRecordForPayroll(
     return { ...base, reason: "退勤未打刻" };
   }
 
-  const { start: monthStart, end: monthEnd } = getJstMonthBounds(year, month);
+  const { dateFrom, dateTo } = getPayrollMonthRange(year, month);
   const clockIn = new Date(record.clock_in);
   const clockOut = new Date(record.clock_out);
 
-  if (clockOut <= monthStart || clockIn > monthEnd) {
+  if (record.clock_in < dateFrom || record.clock_in >= dateTo) {
     return { ...base, reason: "対象月外" };
   }
 
-  const effectiveIn = clockIn < monthStart ? monthStart : clockIn;
-  const effectiveOut = clockOut > monthEnd ? monthEnd : clockOut;
-  if (effectiveOut <= effectiveIn) {
-    return { ...base, reason: "対象月外" };
-  }
-
-  const segment = splitWorkMinutes(effectiveIn, effectiveOut);
+  const segment = splitWorkMinutes(clockIn, clockOut);
   const workMinutes = segment.regularMinutes + segment.nightMinutes;
   base.workMinutes = workMinutes;
 

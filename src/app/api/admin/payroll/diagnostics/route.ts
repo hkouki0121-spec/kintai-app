@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/lib/auth/company-context";
 import { getPayrollDiagnostics } from "@/lib/payroll/diagnostics";
+import { resolvePayrollScope } from "@/lib/payroll/resolve-scope";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
@@ -23,14 +24,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "year と month が必要です" }, { status: 400 });
   }
 
-  const serviceSupabase = createServiceClient();
-  const diagnostics = await getPayrollDiagnostics(
-    serviceSupabase,
-    year,
-    month,
-    isAllStores(storeId) ? null : storeId,
-    context.isSuperAdmin ? null : context.companyId
-  );
-
-  return NextResponse.json(diagnostics);
+  try {
+    const scope = await resolvePayrollScope(
+      supabase,
+      context,
+      isAllStores(storeId) ? null : storeId
+    );
+    const serviceSupabase = createServiceClient();
+    const diagnostics = await getPayrollDiagnostics(
+      supabase,
+      serviceSupabase,
+      year,
+      month,
+      scope
+    );
+    return NextResponse.json(diagnostics);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "診断の取得に失敗しました";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

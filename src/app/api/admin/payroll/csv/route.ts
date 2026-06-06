@@ -10,6 +10,7 @@ import {
   isAllStores,
 } from "@/lib/csv/payroll-csv-query";
 import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
+import { resolvePayrollScope } from "@/lib/payroll/resolve-scope";
 import { syncPayrollFromAttendance } from "@/lib/payroll/sync-from-attendance";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
 
   const { storeId, year, month } = params;
 
+  let storeLabel = "全店舗";
   if (!isAllStores(storeId)) {
     const { data: store, error: storeError } = await supabase
       .from("stores")
@@ -56,40 +58,27 @@ export async function GET(request: Request) {
     if (storeError || !store) {
       return NextResponse.json({ error: CSV_EXPORT_ERROR }, { status: 404 });
     }
-
-    if (store.company_id !== context.companyId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-  }
-
-  let storeLabel = "全店舗";
-  if (!isAllStores(storeId)) {
-    const { data: store } = await supabase
-      .from("stores")
-      .select("name")
-      .eq("id", storeId)
-      .maybeSingle();
-    storeLabel = store?.name ?? "店舗";
+    storeLabel = store.name;
   }
 
   let payroll: PayrollWithCompany[];
   try {
+    const scope = await resolvePayrollScope(
+      supabase,
+      context,
+      isAllStores(storeId) ? null : storeId
+    );
     const serviceSupabase = createServiceClient();
     await syncPayrollFromAttendance(
+      supabase,
       serviceSupabase,
       year,
       month,
-      isAllStores(storeId) ? null : storeId,
-      context.companyId,
-      storeLabel
+      scope,
+      storeLabel,
+      "rls"
     );
-    const rows = await fetchPayrollForPeriod(
-      serviceSupabase,
-      year,
-      month,
-      storeId,
-      context.companyId
-    );
+    const rows = await fetchPayrollForPeriod(supabase, serviceSupabase, year, month, scope);
     payroll = rows.map((row) => ({
       ...row,
       companies: context.companyName ? { name: context.companyName } : null,

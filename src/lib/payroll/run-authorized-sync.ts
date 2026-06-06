@@ -1,35 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CompanyContext } from "@/lib/auth/company-context";
 import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
+import { resolvePayrollScope } from "@/lib/payroll/resolve-scope";
 import {
   syncPayrollFromAttendance,
   type PayrollSyncResult,
 } from "@/lib/payroll/sync-from-attendance";
 import { createServiceClient } from "@/lib/supabase/service";
-import { isAllStores } from "@/lib/stores/queries";
 
-async function assertStoreAccess(
-  authSupabase: SupabaseClient,
-  storeId: string | null | undefined,
-  companyId: string | null
-) {
-  if (isAllStores(storeId)) return;
-
-  const { data: store, error } = await authSupabase
-    .from("stores")
-    .select("id, company_id")
-    .eq("id", storeId!)
-    .maybeSingle();
-
-  if (error || !store) {
-    throw new Error("店舗が見つかりません");
-  }
-  if (companyId && store.company_id !== companyId) {
-    throw new Error("この店舗にアクセスする権限がありません");
-  }
-}
-
-/** 認可確認後、service role で勤怠から給与を再計算 */
+/** 認可確認後、RLSで勤怠を読み取り service role で給与を書き込み */
 export async function runAuthorizedPayrollSync(
   authSupabase: SupabaseClient,
   context: CompanyContext,
@@ -38,17 +17,16 @@ export async function runAuthorizedPayrollSync(
   storeId?: string | null,
   storeLabel = "全店舗"
 ): Promise<PayrollSyncResult> {
-  const companyId = context.isSuperAdmin ? null : context.companyId;
-  await assertStoreAccess(authSupabase, storeId, companyId);
-
+  const scope = await resolvePayrollScope(authSupabase, context, storeId);
   const serviceSupabase = createServiceClient();
   return syncPayrollFromAttendance(
+    authSupabase,
     serviceSupabase,
     year,
     month,
-    storeId,
-    companyId,
-    storeLabel
+    scope,
+    storeLabel,
+    "rls"
   );
 }
 
@@ -60,7 +38,7 @@ export async function runAuthorizedPayrollSyncAndFetch(
   storeId?: string | null,
   storeLabel = "全店舗"
 ) {
-  const companyId = context.isSuperAdmin ? null : context.companyId;
+  const scope = await resolvePayrollScope(authSupabase, context, storeId);
   const result = await runAuthorizedPayrollSync(
     authSupabase,
     context,
@@ -71,11 +49,11 @@ export async function runAuthorizedPayrollSyncAndFetch(
   );
   const serviceSupabase = createServiceClient();
   const payroll = await fetchPayrollForPeriod(
+    authSupabase,
     serviceSupabase,
     year,
     month,
-    storeId,
-    companyId
+    scope
   );
-  return { result, payroll };
+  return { result, payroll, scope };
 }

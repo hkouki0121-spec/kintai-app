@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/lib/auth/company-context";
 import { fetchPayrollForPeriod } from "@/lib/payroll/fetch-payroll";
+import { resolvePayrollScope } from "@/lib/payroll/resolve-scope";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
@@ -24,13 +25,18 @@ export async function GET(request: Request) {
   }
 
   try {
+    const scope = await resolvePayrollScope(
+      supabase,
+      context,
+      isAllStores(storeId) ? null : storeId
+    );
     const serviceSupabase = createServiceClient();
     const payroll = await fetchPayrollForPeriod(
+      supabase,
       serviceSupabase,
       year,
       month,
-      isAllStores(storeId) ? null : storeId,
-      context.isSuperAdmin ? null : context.companyId
+      scope
     );
     return NextResponse.json({ payroll });
   } catch (error) {
