@@ -168,6 +168,30 @@ export async function syncPayrollFromAttendance(
       settings
     );
 
+    console.log("[payroll/calculate/shifts]", {
+      employee_name: employee?.name ?? "不明",
+      employee_id: employeeId,
+      hourly_rate: Number(employee?.hourly_rate ?? 0),
+      shifts: payrollPreview.shifts.map((shift) => ({
+        clock_in: shift.clockIn,
+        clock_out: shift.clockOut,
+        actual_regular_minutes: shift.actualRegularMinutes,
+        actual_night_minutes: shift.actualNightMinutes,
+        payroll_regular_minutes: shift.payrollRegularMinutes,
+        payroll_night_minutes: shift.payrollNightMinutes,
+        regular_pay: shift.regularPay,
+        night_pay: shift.nightPay,
+        shift_total_pay: shift.shiftTotalPay,
+      })),
+      totals: {
+        regular_hours: payrollPreview.regularHours,
+        night_hours: payrollPreview.nightHours,
+        regular_pay: payrollPreview.regularPay,
+        night_pay: payrollPreview.nightPay,
+        total_pay: payrollPreview.totalPay,
+      },
+    });
+
     const result = await recalculateEmployeeMonthlyPayroll(writeSupabase, employeeId, year, month);
     const excludedReasons = analyses
       .filter((item) => !item.included && item.reason)

@@ -3,7 +3,7 @@ import { getPayrollMonthRange } from "@/lib/payroll/month-range";
 import {
   isWorkSegmentEligible,
   MIN_PAYROLL_WORK_MINUTES,
-  roundMinutesForPayroll,
+  roundShiftMinutesForPayroll,
 } from "@/lib/payroll/round-hours";
 import type { PayrollRoundingMinutes } from "@/lib/payroll/settings";
 
@@ -89,10 +89,12 @@ export function analyzeAttendanceRecordForPayroll(
     };
   }
 
-  const payrollMinutes =
-    roundMinutesForPayroll(segment.regularMinutes, roundingMinutes) +
-    roundMinutesForPayroll(segment.nightMinutes, roundingMinutes);
-  base.payrollMinutes = payrollMinutes;
+  const rounded = roundShiftMinutesForPayroll(
+    segment.regularMinutes,
+    segment.nightMinutes,
+    roundingMinutes
+  );
+  base.payrollMinutes = rounded.regularMinutes + rounded.nightMinutes;
 
   return { ...base, included: true };
 }

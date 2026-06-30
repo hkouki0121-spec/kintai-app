@@ -22,13 +22,16 @@ type Props = {
   initialMonth: number;
 };
 
-function getPayrollHours(row: PayrollWithEmployee): number {
-  return Number(row.regular_hours) + Number(row.night_hours);
+function getPayrollRegularHours(row: PayrollWithEmployee): number {
+  return Number(row.regular_hours);
 }
 
-function getActualTotalHours(row: PayrollWithEmployee): number {
-  if (row.actual_total_hours != null) return Number(row.actual_total_hours);
-  return Number(row.actual_regular_hours ?? row.regular_hours) + Number(row.actual_night_hours ?? row.night_hours);
+function getPayrollNightHours(row: PayrollWithEmployee): number {
+  return Number(row.night_hours);
+}
+
+function getPayrollHours(row: PayrollWithEmployee): number {
+  return getPayrollRegularHours(row) + getPayrollNightHours(row);
 }
 
 export function PayrollManager({
@@ -124,9 +127,9 @@ export function PayrollManager({
       (acc, row) => {
         acc.count += 1;
         acc.totalPay += Number(row.total_pay);
-        acc.totalHours += getActualTotalHours(row);
-        acc.regularHours += Number(row.actual_regular_hours ?? row.regular_hours);
-        acc.nightHours += Number(row.actual_night_hours ?? row.night_hours);
+        acc.totalHours += getPayrollHours(row);
+        acc.regularHours += getPayrollRegularHours(row);
+        acc.nightHours += getPayrollNightHours(row);
         return acc;
       },
       { count: 0, totalPay: 0, totalHours: 0, regularHours: 0, nightHours: 0 }
@@ -371,9 +374,9 @@ export function PayrollManager({
                 <td className="px-5 py-4 font-medium">{row.employees?.name ?? "—"}</td>
                 <td className="px-5 py-4">{row.attendance_days ?? 0}日</td>
                 <td className="px-5 py-4 font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</td>
-                <td className="px-5 py-4">{formatHoursClock(Number(row.actual_regular_hours ?? row.regular_hours))}</td>
+                <td className="px-5 py-4">{formatHoursClock(getPayrollRegularHours(row))}</td>
                 <td className="px-5 py-4 font-medium text-blue-600">
-                  {formatHoursClock(Number(row.actual_night_hours ?? row.night_hours))}
+                  {formatHoursClock(getPayrollNightHours(row))}
                 </td>
                 <td className="px-5 py-4">{formatYen(Number(row.employees?.hourly_rate ?? 0))}</td>
                 <td className="px-5 py-4">{formatYen(Number(row.regular_pay))}</td>
@@ -404,12 +407,12 @@ export function PayrollManager({
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-500">通常勤務時間</dt>
-                <dd>{formatHoursClock(Number(row.actual_regular_hours ?? row.regular_hours))}</dd>
+                <dd>{formatHoursClock(getPayrollRegularHours(row))}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-500">深夜勤務時間</dt>
                 <dd className="font-medium text-blue-600">
-                  {formatHoursClock(Number(row.actual_night_hours ?? row.night_hours))}
+                  {formatHoursClock(getPayrollNightHours(row))}
                 </dd>
               </div>
             </dl>

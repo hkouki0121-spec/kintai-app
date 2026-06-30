@@ -9,7 +9,7 @@ import { floorYen } from "@/lib/payroll/floor-yen";
 import { getPayrollMonthRange } from "@/lib/payroll/month-range";
 import {
   isWorkSegmentEligible,
-  roundMinutesForPayroll,
+  roundShiftMinutesForPayroll,
 } from "@/lib/payroll/round-hours";
 import {
   getPayrollSettings,
@@ -68,6 +68,18 @@ export function splitWorkMinutesByDay(clockIn: Date, clockOut: Date): Map<string
   return byDay;
 }
 
+export type ShiftPayrollBreakdown = {
+  clockIn: string;
+  clockOut: string;
+  actualRegularMinutes: number;
+  actualNightMinutes: number;
+  payrollRegularMinutes: number;
+  payrollNightMinutes: number;
+  regularPay: number;
+  nightPay: number;
+  shiftTotalPay: number;
+};
+
 export type PayrollResult = {
   employeeId: string;
   year: number;
@@ -82,6 +94,7 @@ export type PayrollResult = {
   regularPay: number;
   nightPay: number;
   totalPay: number;
+  shifts: ShiftPayrollBreakdown[];
 };
 
 export function calculateEmployeePayroll(
@@ -101,6 +114,7 @@ export function calculateEmployeePayroll(
   let payrollNightMinutes = 0;
   const attendanceDayKeys = new Set<string>();
   const dailyTotalMinutes = new Map<string, number>();
+  const shifts: ShiftPayrollBreakdown[] = [];
 
   for (const record of records) {
     if (!record.clock_out) continue;
@@ -113,10 +127,31 @@ export function calculateEmployeePayroll(
       continue;
     }
 
+    const rounded = roundShiftMinutesForPayroll(
+      segment.regularMinutes,
+      segment.nightMinutes,
+      roundingMinutes
+    );
+    const shiftRegularPay = floorYen((rounded.regularMinutes / 60) * hourlyRate);
+    const shiftNightPay = floorYen(
+      (rounded.nightMinutes / 60) * hourlyRate * NIGHT_RATE_MULTIPLIER
+    );
+
     actualRegularMinutes += segment.regularMinutes;
     actualNightMinutes += segment.nightMinutes;
-    payrollRegularMinutes += roundMinutesForPayroll(segment.regularMinutes, roundingMinutes);
-    payrollNightMinutes += roundMinutesForPayroll(segment.nightMinutes, roundingMinutes);
+    payrollRegularMinutes += rounded.regularMinutes;
+    payrollNightMinutes += rounded.nightMinutes;
+    shifts.push({
+      clockIn: record.clock_in,
+      clockOut: record.clock_out,
+      actualRegularMinutes: segment.regularMinutes,
+      actualNightMinutes: segment.nightMinutes,
+      payrollRegularMinutes: rounded.regularMinutes,
+      payrollNightMinutes: rounded.nightMinutes,
+      regularPay: shiftRegularPay,
+      nightPay: shiftNightPay,
+      shiftTotalPay: shiftRegularPay + shiftNightPay,
+    });
 
     for (const [dayKey, daySegment] of splitWorkMinutesByDay(clockIn, clockOut)) {
       if (!isDateInMonth(dayKey, year, month)) continue;
@@ -156,6 +191,7 @@ export function calculateEmployeePayroll(
     regularPay,
     nightPay,
     totalPay,
+    shifts,
   };
 }
 

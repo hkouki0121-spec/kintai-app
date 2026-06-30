@@ -32,6 +32,41 @@ export function isWorkSegmentEligible(
   return regularMinutes + nightMinutes >= MIN_PAYROLL_WORK_MINUTES;
 }
 
+/** 深夜帯の切り捨て単位（勤務合計30分のとき深夜のみ15分単位） */
+export function getNightRoundingMinutes(
+  roundingMinutes: PayrollRoundingMinutes = DEFAULT_PAYROLL_ROUNDING_MINUTES
+): PayrollRoundingMinutes {
+  return roundingMinutes === 30 ? 15 : roundingMinutes;
+}
+
+/**
+ * 1勤務の通常・深夜を給与用に切り捨て。
+ * 合計勤務を先に区切り単位で切り捨て、深夜は15分単位（合計30分設定時）で切り捨て、残りを通常とする。
+ * 通常と深夜は重複しない（深夜帯の分は通常に含めない）。
+ */
+export function roundShiftMinutesForPayroll(
+  regularMinutes: number,
+  nightMinutes: number,
+  roundingMinutes: PayrollRoundingMinutes = DEFAULT_PAYROLL_ROUNDING_MINUTES
+): { regularMinutes: number; nightMinutes: number } {
+  const total = regularMinutes + nightMinutes;
+  if (total < MIN_PAYROLL_WORK_MINUTES) {
+    return { regularMinutes: 0, nightMinutes: 0 };
+  }
+
+  const roundedTotal = roundMinutesForPayroll(total, roundingMinutes);
+  const nightRounding = getNightRoundingMinutes(roundingMinutes);
+  const roundedNight = Math.min(
+    roundMinutesForPayroll(nightMinutes, nightRounding),
+    roundedTotal
+  );
+
+  return {
+    regularMinutes: roundedTotal - roundedNight,
+    nightMinutes: roundedNight,
+  };
+}
+
 /** @deprecated roundMinutesToPayrollHours を使用 */
 export function roundMinutesToHalfHours(totalMinutes: number): number {
   return roundMinutesToPayrollHours(totalMinutes, 30);
