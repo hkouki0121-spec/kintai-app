@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -14,7 +15,29 @@ const baseLinks = [
   { href: "/admin/payroll", label: "給与" },
   { href: "/admin/backups", label: "バックアップ" },
   { href: "/admin/account", label: "アカウント" },
-];
+] as const;
+
+const NavLink = memo(function NavLink({
+  href,
+  label,
+  active,
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      prefetch
+      className={`rounded-lg px-3 py-2 text-sm font-medium ${
+        active ? "bg-blue-100 text-blue-800" : "text-slate-600 hover:bg-slate-100"
+      }`}
+    >
+      {label}
+    </Link>
+  );
+});
 
 type Props = {
   context: CompanyContext;
@@ -23,17 +46,17 @@ type Props = {
 export function AdminNav({ context }: Props) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClient();
 
   const links = context.isSuperAdmin
-    ? [...baseLinks, { href: "/admin/companies", label: "会社管理" }]
+    ? [...baseLinks, { href: "/admin/companies", label: "会社管理" } as const]
     : baseLinks;
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
+    const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/admin/login");
     router.refresh();
-  };
+  }, [router]);
 
   const roleLabel = context.isSuperAdmin
     ? "スーパー管理者"
@@ -50,17 +73,12 @@ export function AdminNav({ context }: Props) {
         </div>
         <nav className="flex flex-wrap gap-2">
           {links.map((link) => (
-            <Link
+            <NavLink
               key={link.href}
               href={link.href}
-              className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                pathname === link.href
-                  ? "bg-blue-100 text-blue-800"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {link.label}
-            </Link>
+              label={link.label}
+              active={pathname === link.href}
+            />
           ))}
         </nav>
         <Button variant="ghost" onClick={handleLogout} className="shrink-0 py-2 text-sm">

@@ -1,6 +1,8 @@
 import type { AuthError, SupabaseClient, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { createServiceClient } from "@/lib/supabase/service";
+import { createClient } from "@/lib/supabase/server";
 
 export type CompanyRole = "super_admin" | "company_admin";
 
@@ -59,6 +61,7 @@ function pickUser(user: User | null | undefined) {
 }
 
 function logDiagnostics(label: string, diagnostics: CompanyContextDiagnostics) {
+  if (process.env.NODE_ENV !== "development") return;
   console.log(`[company-context] ${label}`, JSON.stringify(diagnostics, null, 2));
 }
 
@@ -259,6 +262,17 @@ export async function getCompanyContext(
   const diagnostics = await getCompanyContextDiagnostics(supabase);
   return diagnostics.context;
 }
+
+/** リクエスト内で1回だけ認可コンテキストを解決（layout + page の二重取得を防ぐ） */
+export const getCachedCompanyContext = cache(async (): Promise<CompanyContext | null> => {
+  const supabase = await createClient();
+  return getCompanyContext(supabase);
+});
+
+export const getCachedCompanyContextDiagnostics = cache(async () => {
+  const supabase = await createClient();
+  return getCompanyContextDiagnostics(supabase);
+});
 
 export async function requireCompanyContext(
   supabase: SupabaseClient

@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchAttendanceRecordsInScope } from "@/lib/payroll/attendance-query";
+import { fetchAttendanceRecordsInScope, type AttendanceRecordRow } from "@/lib/payroll/attendance-query";
 import type { PayrollScope } from "@/lib/payroll/resolve-scope";
 import { isAllStores } from "@/lib/stores/queries";
+
+type CollectOptions = {
+  attendanceRecords?: AttendanceRecordRow[];
+};
 
 /** 給与再計算・表示の対象従業員ID（勤怠ベース + 店舗所属の在籍者） */
 export async function collectPayrollTargetEmployeeIds(
@@ -9,17 +13,17 @@ export async function collectPayrollTargetEmployeeIds(
   year: number,
   month: number,
   scope: PayrollScope,
-  readMode: "rls" | "service" = "rls"
+  readMode: "rls" | "service" = "rls",
+  options?: CollectOptions
 ): Promise<string[]> {
   const ids = new Set<string>();
 
-  const { records } = await fetchAttendanceRecordsInScope(
-    readSupabase,
-    year,
-    month,
-    scope,
-    readMode
-  );
+  const records =
+    options?.attendanceRecords ??
+    (
+      await fetchAttendanceRecordsInScope(readSupabase, year, month, scope, readMode)
+    ).records;
+
   for (const row of records) {
     ids.add(row.employee_id);
   }

@@ -120,3 +120,32 @@ export async function fetchEmployeeAttendanceInMonth(
   if (error) throw error;
   return (data as AttendanceRecordRow[]) ?? [];
 }
+
+/** 複数従業員の対象月勤怠を1クエリで取得 */
+export async function fetchEmployeesAttendanceInMonth(
+  supabase: SupabaseClient,
+  employeeIds: string[],
+  year: number,
+  month: number
+): Promise<Map<string, AttendanceRecordRow[]>> {
+  const map = new Map<string, AttendanceRecordRow[]>();
+  if (employeeIds.length === 0) return map;
+
+  const range = getPayrollMonthRange(year, month);
+  const { data, error } = await supabase
+    .from("attendance_records")
+    .select("id, employee_id, store_id, company_id, clock_in, clock_out")
+    .in("employee_id", employeeIds)
+    .gte("clock_in", range.dateFrom)
+    .lt("clock_in", range.dateTo)
+    .order("clock_in", { ascending: true });
+
+  if (error) throw error;
+
+  for (const row of (data as AttendanceRecordRow[]) ?? []) {
+    const list = map.get(row.employee_id) ?? [];
+    list.push(row);
+    map.set(row.employee_id, list);
+  }
+  return map;
+}

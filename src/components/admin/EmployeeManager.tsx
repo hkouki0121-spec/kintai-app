@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { EMPLOYEE_SELECT_COLUMNS } from "@/lib/employees/constants";
+import { EMPLOYEE_LIST_SELECT_COLUMNS } from "@/lib/employees/constants";
 import type { DuplicateEmployeeCodeGroup } from "@/lib/employees/duplicate-code";
 import { groupEmployeesByStore } from "@/lib/employees/group-by-store";
 import { downloadEmployeesCsv } from "@/lib/csv/export-employees-csv";
@@ -94,7 +94,7 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
   const refresh = async () => {
     const { data } = await supabase
       .from("employees")
-      .select(`${EMPLOYEE_SELECT_COLUMNS}, stores(id, name)`)
+      .select(`${EMPLOYEE_LIST_SELECT_COLUMNS}, stores(id, name)`)
       .order("name");
     setEmployees((data as unknown as EmployeeWithStore[]) ?? []);
   };

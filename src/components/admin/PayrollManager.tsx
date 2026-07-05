@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildPayrollCsvFilename } from "@/lib/csv/build-payroll-csv";
+import { readPayrollCache, writePayrollCache } from "@/lib/payroll/client-cache";
 import { isAllStores } from "@/lib/stores/queries";
+import { recordPerfMetric } from "@/lib/perf/client-metrics";
 import type { PayrollWithEmployee, Store } from "@/types/database";
 import { formatHoursClock, formatYen } from "@/lib/format";
 import { StoreSelect } from "@/components/admin/StoreSelect";
@@ -34,6 +36,53 @@ function getPayrollHours(row: PayrollWithEmployee): number {
   return getPayrollRegularHours(row) + getPayrollNightHours(row);
 }
 
+const PayrollDesktopRow = memo(function PayrollDesktopRow({ row }: { row: PayrollWithEmployee }) {
+  return (
+    <tr className="border-b border-slate-50 last:border-0">
+      <td className="px-5 py-4 font-mono text-xs">{row.employees?.employee_code ?? "—"}</td>
+      <td className="px-5 py-4 font-medium">{row.employees?.name ?? "—"}</td>
+      <td className="px-5 py-4">{row.attendance_days ?? 0}日</td>
+      <td className="px-5 py-4 font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</td>
+      <td className="px-5 py-4">{formatHoursClock(getPayrollRegularHours(row))}</td>
+      <td className="px-5 py-4 font-medium text-blue-600">{formatHoursClock(getPayrollNightHours(row))}</td>
+      <td className="px-5 py-4">{formatYen(Number(row.employees?.hourly_rate ?? 0))}</td>
+      <td className="px-5 py-4">{formatYen(Number(row.regular_pay))}</td>
+      <td className="px-5 py-4">{formatYen(Number(row.night_pay))}</td>
+      <td className="px-5 py-4 font-bold text-red-600">{formatYen(Number(row.total_pay))}</td>
+    </tr>
+  );
+});
+
+const PayrollMobileCard = memo(function PayrollMobileCard({ row }: { row: PayrollWithEmployee }) {
+  return (
+    <div className="rounded-2xl bg-white p-5 shadow-sm">
+      <p className="text-lg font-bold text-slate-900">{row.employees?.name ?? "—"}</p>
+      <dl className="mt-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <dt className="text-slate-500">勤務日数</dt>
+          <dd>{row.attendance_days ?? 0}日</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-500">給与計算時間</dt>
+          <dd className="font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-500">通常勤務時間</dt>
+          <dd>{formatHoursClock(getPayrollRegularHours(row))}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-500">深夜勤務時間</dt>
+          <dd className="font-medium text-blue-600">{formatHoursClock(getPayrollNightHours(row))}</dd>
+        </div>
+      </dl>
+      <div className="mt-4 border-t border-slate-100 pt-4">
+        <p className="text-xs text-slate-500">総支給額</p>
+        <p className="text-2xl font-bold text-red-600">{formatYen(Number(row.total_pay))}</p>
+      </div>
+    </div>
+  );
+});
+
 export function PayrollManager({
   stores,
   initialStoreId,
@@ -53,9 +102,21 @@ export function PayrollManager({
   const [diagnostics, setDiagnostics] = useState<PayrollDiagnostics | null>(null);
   const [employeeResults, setEmployeeResults] = useState<EmployeePayrollLog[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const router = useRouter();
 
+  useEffect(() => {
+    writePayrollCache(initialYear, initialMonth, initialStoreId, initialPayroll);
+    setPayroll(initialPayroll);
+  }, [initialPayroll, initialYear, initialMonth, initialStoreId]);
+
   const loadPayroll = useCallback(async (y: number, m: number, store: string) => {
+    const cached = readPayrollCache(y, m, store);
+    if (cached) {
+      setPayroll(cached);
+    }
+    const started = performance.now();
     const params = new URLSearchParams({
       year: String(y),
       month: String(m),
@@ -64,18 +125,36 @@ export function PayrollManager({
     const res = await fetch(`/api/admin/payroll/list?${params.toString()}`);
     if (!res.ok) return;
     const data = (await res.json()) as { payroll?: PayrollWithEmployee[] };
-    setPayroll(data.payroll ?? []);
+    const rows = data.payroll ?? [];
+    setPayroll(rows);
+    writePayrollCache(y, m, store, rows);
+    recordPerfMetric(`給与API ${y}/${m}`, Math.round(performance.now() - started));
   }, []);
 
   const loadDiagnostics = useCallback(async (y: number, m: number, store: string) => {
-    const params = new URLSearchParams({ year: String(y), month: String(m), storeId: store });
-    const res = await fetch(`/api/admin/payroll/diagnostics?${params.toString()}`);
-    if (res.ok) {
-      const data = (await res.json()) as PayrollDiagnostics;
-      setDiagnostics(data);
-      setEmployeeResults(data.employeeResults ?? []);
+    setDiagnosticsLoading(true);
+    try {
+      const started = performance.now();
+      const params = new URLSearchParams({ year: String(y), month: String(m), storeId: store });
+      const res = await fetch(`/api/admin/payroll/diagnostics?${params.toString()}`);
+      if (res.ok) {
+        const data = (await res.json()) as PayrollDiagnostics;
+        setDiagnostics(data);
+        setEmployeeResults(data.employeeResults ?? []);
+        recordPerfMetric("給与診断API", Math.round(performance.now() - started));
+      }
+    } finally {
+      setDiagnosticsLoading(false);
     }
   }, []);
+
+  const handleToggleDiagnostics = useCallback(async () => {
+    const next = !showDiagnostics;
+    setShowDiagnostics(next);
+    if (next && !diagnostics) {
+      await loadDiagnostics(Number(year), Number(month), storeId);
+    }
+  }, [showDiagnostics, diagnostics, loadDiagnostics, year, month, storeId]);
 
   const syncFromAttendance = useCallback(
     async (y: number, m: number, store: string, silent = false) => {
@@ -98,13 +177,16 @@ export function PayrollManager({
         }
         if (data.payroll) {
           setPayroll(data.payroll);
+          writePayrollCache(y, m, store, data.payroll);
         } else {
           await loadPayroll(y, m, store);
         }
         if (data.employeeLogs) {
           setEmployeeResults(data.employeeLogs);
         }
-        await loadDiagnostics(y, m, store);
+        if (showDiagnostics) {
+          await loadDiagnostics(y, m, store);
+        }
         const failedEmployees =
           data.employeeLogs?.filter((log) => !log.upsert_ok).map((log) => log.employee_name) ?? [];
         return {
@@ -115,12 +197,8 @@ export function PayrollManager({
         if (!silent) setSyncing(false);
       }
     },
-    [loadPayroll, loadDiagnostics]
+    [loadPayroll, loadDiagnostics, showDiagnostics]
   );
-
-  useEffect(() => {
-    void loadDiagnostics(initialYear, initialMonth, initialStoreId);
-  }, [initialYear, initialMonth, initialStoreId, loadDiagnostics]);
 
   const summary = useMemo(() => {
     return payroll.reduce(
@@ -144,8 +222,11 @@ export function PayrollManager({
 
   const handlePeriodChange = (e: React.FormEvent) => {
     e.preventDefault();
+    const cached = readPayrollCache(Number(year), Number(month), storeId);
+    if (cached) {
+      setPayroll(cached);
+    }
     router.push(buildPayrollUrl(year, month, storeId));
-    void syncFromAttendance(Number(year), Number(month), storeId, true);
   };
 
   const handleCalculate = async () => {
@@ -235,12 +316,15 @@ export function PayrollManager({
               {csvLoading ? "出力中…" : "給与CSV出力"}
             </Button>
           )}
+          <Button type="button" variant="ghost" onClick={handleToggleDiagnostics} disabled={diagnosticsLoading}>
+            {diagnosticsLoading ? "診断読込中…" : showDiagnostics ? "診断を閉じる" : "診断を表示"}
+          </Button>
         </div>
       </div>
 
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
-      {(diagnostics || employeeResults.length > 0) && (
+      {showDiagnostics && (diagnostics || employeeResults.length > 0) && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <h3 className="font-bold text-amber-900">給与集計診断</h3>
           {diagnostics && (
@@ -369,20 +453,7 @@ export function PayrollManager({
           </thead>
           <tbody>
             {payroll.map((row) => (
-              <tr key={row.id} className="border-b border-slate-50 last:border-0">
-                <td className="px-5 py-4 font-mono text-xs">{row.employees?.employee_code ?? "—"}</td>
-                <td className="px-5 py-4 font-medium">{row.employees?.name ?? "—"}</td>
-                <td className="px-5 py-4">{row.attendance_days ?? 0}日</td>
-                <td className="px-5 py-4 font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</td>
-                <td className="px-5 py-4">{formatHoursClock(getPayrollRegularHours(row))}</td>
-                <td className="px-5 py-4 font-medium text-blue-600">
-                  {formatHoursClock(getPayrollNightHours(row))}
-                </td>
-                <td className="px-5 py-4">{formatYen(Number(row.employees?.hourly_rate ?? 0))}</td>
-                <td className="px-5 py-4">{formatYen(Number(row.regular_pay))}</td>
-                <td className="px-5 py-4">{formatYen(Number(row.night_pay))}</td>
-                <td className="px-5 py-4 font-bold text-red-600">{formatYen(Number(row.total_pay))}</td>
-              </tr>
+              <PayrollDesktopRow key={row.id} row={row} />
             ))}
           </tbody>
         </table>
@@ -394,33 +465,7 @@ export function PayrollManager({
       {/* スマホ: カード */}
       <div className="space-y-4 md:hidden">
         {payroll.map((row) => (
-          <div key={row.id} className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-lg font-bold text-slate-900">{row.employees?.name ?? "—"}</p>
-            <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-slate-500">勤務日数</dt>
-                <dd>{row.attendance_days ?? 0}日</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">給与計算時間</dt>
-                <dd className="font-semibold text-emerald-600">{formatHoursClock(getPayrollHours(row))}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">通常勤務時間</dt>
-                <dd>{formatHoursClock(getPayrollRegularHours(row))}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-slate-500">深夜勤務時間</dt>
-                <dd className="font-medium text-blue-600">
-                  {formatHoursClock(getPayrollNightHours(row))}
-                </dd>
-              </div>
-            </dl>
-            <div className="mt-4 border-t border-slate-100 pt-4">
-              <p className="text-xs text-slate-500">総支給額</p>
-              <p className="text-2xl font-bold text-red-600">{formatYen(Number(row.total_pay))}</p>
-            </div>
-          </div>
+          <PayrollMobileCard key={row.id} row={row} />
         ))}
         {payroll.length === 0 && (
           <p className="py-12 text-center text-sm text-slate-500">この月の給与データがありません。</p>

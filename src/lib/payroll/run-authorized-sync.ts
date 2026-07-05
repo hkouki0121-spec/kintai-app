@@ -8,6 +8,26 @@ import {
 } from "@/lib/payroll/sync-from-attendance";
 import { createServiceClient } from "@/lib/supabase/service";
 
+/** 給与一覧の読み取りのみ（再計算なし） */
+export async function runAuthorizedPayrollFetch(
+  authSupabase: SupabaseClient,
+  context: CompanyContext,
+  year: number,
+  month: number,
+  storeId?: string | null
+) {
+  const scope = await resolvePayrollScope(authSupabase, context, storeId);
+  const serviceSupabase = createServiceClient();
+  const payroll = await fetchPayrollForPeriod(
+    authSupabase,
+    serviceSupabase,
+    year,
+    month,
+    scope
+  );
+  return { payroll, scope };
+}
+
 /** 認可確認後、RLSで勤怠を読み取り service role で給与を書き込み */
 export async function runAuthorizedPayrollSync(
   authSupabase: SupabaseClient,
@@ -15,16 +35,17 @@ export async function runAuthorizedPayrollSync(
   year: number,
   month: number,
   storeId?: string | null,
-  storeLabel = "全店舗"
+  storeLabel = "全店舗",
+  scope?: Awaited<ReturnType<typeof resolvePayrollScope>>
 ): Promise<PayrollSyncResult> {
-  const scope = await resolvePayrollScope(authSupabase, context, storeId);
+  const resolvedScope = scope ?? (await resolvePayrollScope(authSupabase, context, storeId));
   const serviceSupabase = createServiceClient();
   return syncPayrollFromAttendance(
     authSupabase,
     serviceSupabase,
     year,
     month,
-    scope,
+    resolvedScope,
     storeLabel,
     "rls"
   );
@@ -45,7 +66,8 @@ export async function runAuthorizedPayrollSyncAndFetch(
     year,
     month,
     storeId,
-    storeLabel
+    storeLabel,
+    scope
   );
   const serviceSupabase = createServiceClient();
   const payroll = await fetchPayrollForPeriod(

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeManager } from "@/components/admin/EmployeeManager";
-import { EMPLOYEE_SELECT_COLUMNS } from "@/lib/employees/constants";
+import { EMPLOYEE_LIST_SELECT_COLUMNS } from "@/lib/employees/constants";
 import { findDuplicateEmployeeCodes } from "@/lib/employees/duplicate-code";
 import type { EmployeeWithStore } from "@/types/database";
 
@@ -10,7 +10,7 @@ export default async function EmployeesPage() {
     supabase.from("stores").select("id, name, is_active, company_id").order("name"),
     supabase
       .from("employees")
-      .select(`${EMPLOYEE_SELECT_COLUMNS}, stores(id, name)`)
+      .select(`${EMPLOYEE_LIST_SELECT_COLUMNS}, stores(id, name)`)
       .order("name"),
   ]);
   const stores = allStores ?? [];

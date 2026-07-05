@@ -4,10 +4,13 @@ import {
   summarizeExclusionReasons,
   type AttendancePayrollAnalysis,
 } from "@/lib/payroll/analyze-attendance";
-import { fetchAttendanceRecordsInScope } from "@/lib/payroll/attendance-query";
+import {
+  fetchAttendanceRecordsInScope,
+  fetchEmployeesAttendanceInMonth,
+  type AttendanceRecordRow,
+} from "@/lib/payroll/attendance-query";
 import { calculateEmployeePayroll } from "@/lib/payroll/calculate";
 import { collectPayrollTargetEmployeeIds } from "@/lib/payroll/collect-targets";
-import { fetchEmployeeAttendanceInMonth } from "@/lib/payroll/attendance-query";
 import { getPayrollMonthRange } from "@/lib/payroll/month-range";
 import type { PayrollScope } from "@/lib/payroll/resolve-scope";
 import { recalculateEmployeeMonthlyPayroll } from "@/lib/payroll/recalculate-employee";
@@ -74,7 +77,7 @@ async function resolveRoundingMinutes(
 }
 
 function analyzeRecords(
-  records: Awaited<ReturnType<typeof fetchEmployeeAttendanceInMonth>>,
+  records: AttendanceRecordRow[],
   employee: { id: string; company_id: string; name?: string; employee_code?: string } | undefined,
   year: number,
   month: number,
@@ -130,7 +133,15 @@ export async function syncPayrollFromAttendance(
     year,
     month,
     scope,
-    readMode
+    readMode,
+    { attendanceRecords: scopedAttendance }
+  );
+
+  const allAttendanceByEmployee = await fetchEmployeesAttendanceInMonth(
+    readSupabase,
+    targetEmployeeIds,
+    year,
+    month
   );
 
   const { data: employees } = await writeSupabase
@@ -153,7 +164,7 @@ export async function syncPayrollFromAttendance(
 
   for (const employeeId of targetEmployeeIds) {
     const employee = employeeMap.get(employeeId);
-    const allRecords = await fetchEmployeeAttendanceInMonth(readSupabase, employeeId, year, month);
+    const allRecords = allAttendanceByEmployee.get(employeeId) ?? [];
     const displayRecords = recordsByEmployee.get(employeeId) ?? [];
 
     const analyses = analyzeRecords(displayRecords, employee, year, month, settings.roundingMinutes);

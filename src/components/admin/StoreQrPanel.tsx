@@ -117,6 +117,8 @@ export function StoreQrPanel({ store, appBaseUrl }: Props) {
             alt={`${store.name}の緊急打刻QRコード`}
             width={240}
             height={240}
+            loading="lazy"
+            decoding="async"
             className="rounded-lg border border-slate-100"
           />
           <p className="break-all text-center text-xs text-slate-600">{displayQrUrl}</p>

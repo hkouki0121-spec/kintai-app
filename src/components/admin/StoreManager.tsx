@@ -84,7 +84,7 @@ export function StoreManager({
     }
     console.log("[stores/delete] loadStores success", {
       count: data?.length ?? 0,
-      ids: (data ?? []).map((store) => store.id),
+      ids: (data ?? []).map((store: { id: string }) => store.id),
     });
     setStores((data as Store[]) ?? []);
   };
