@@ -41,12 +41,17 @@ const NavLink = memo(function NavLink({
     return (
       <a
         href={href}
-        onClick={(e) => {
+        onMouseDown={(e) => {
           e.preventDefault();
           onNavigate(href);
         }}
+        onClick={(e) => e.preventDefault()}
         onMouseEnter={() => onPrefetch(href)}
-        onTouchStart={() => onPrefetch(href)}
+        onTouchStart={(e) => {
+          onPrefetch(href);
+          e.preventDefault();
+          onNavigate(href);
+        }}
         className={`rounded-lg px-3 py-2 text-sm font-medium ${
           active ? "bg-blue-100 text-blue-800" : "text-slate-600 hover:bg-slate-100"
         }`}
