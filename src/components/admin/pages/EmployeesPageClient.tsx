@@ -1,13 +1,8 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { EmployeeManager } from "@/components/admin/EmployeeManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useEmployeesQuery, useShowPageSkeleton, useStoresQuery } from "@/lib/queries/hooks";
-
-const EmployeeManager = dynamic(
-  () => import("@/components/admin/EmployeeManager").then((m) => ({ default: m.EmployeeManager })),
-  { ssr: false }
-);
 
 export function EmployeesPageClient() {
   const { data: stores } = useStoresQuery();

@@ -2,16 +2,11 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
+import { AttendanceTable } from "@/components/admin/AttendanceTable";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getCurrentMonthDateRangeInJst } from "@/lib/attendance/date-range";
 import { useActiveStoresQuery, useAttendanceQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
-
-const AttendanceTable = dynamic(
-  () => import("@/components/admin/AttendanceTable").then((m) => ({ default: m.AttendanceTable })),
-  { ssr: false }
-);
 
 function AttendancePageInner() {
   const searchParams = useSearchParams();

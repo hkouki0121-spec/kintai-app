@@ -15,6 +15,7 @@ const root = resolve(__dirname, "..");
 const baseUrl = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1]
   ?? "https://kintai-app-gamma.vercel.app";
 const browserArg = process.argv.find((a) => a.startsWith("--browser="))?.split("=")[1] ?? "webkit";
+const coldStart = process.argv.includes("--cold");
 
 function loadEnv() {
   try {
@@ -208,8 +209,10 @@ async function main() {
   ).catch(() => null);
   await page.locator('h2:has-text("ダッシュボード")').first().waitFor({ timeout: 30000 });
 
-  // プリフェッチ完了を待つ（第3段階: AdminDataPrefetch）
-  await page.waitForTimeout(2500);
+  // プリフェッチ完了を待つ（--cold 時はスキップして初回遷移を計測）
+  if (!coldStart) {
+    await page.waitForTimeout(2500);
+  }
 
   const results = [];
 

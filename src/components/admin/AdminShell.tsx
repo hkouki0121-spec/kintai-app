@@ -7,6 +7,7 @@ import { AdminRoutePerf } from "@/components/admin/AdminRoutePerf";
 import { AdminPerfMetrics } from "@/components/admin/AdminPerfMetrics";
 import { AdminRouteVisitTracker } from "@/components/admin/AdminRouteVisitTracker";
 import { AdminDataPrefetch } from "@/components/admin/AdminDataPrefetch";
+import { AdminKeepAliveContent } from "@/components/admin/AdminKeepAliveContent";
 import { AdminRenderProfiler } from "@/lib/perf/render-profiler";
 
 type Props = {
@@ -21,7 +22,9 @@ export const AdminShell = memo(function AdminShell({ children }: Props) {
         <AdminNavProgress />
         <AdminNav />
         <AdminRenderProfiler id="PageContent">
-          <div className="mx-auto max-w-6xl p-4 sm:p-6">{children}</div>
+          <div className="mx-auto max-w-6xl p-4 sm:p-6">
+            <AdminKeepAliveContent>{children}</AdminKeepAliveContent>
+          </div>
         </AdminRenderProfiler>
         <AdminRouteVisitTracker />
         <AdminDataPrefetch />

@@ -2,15 +2,10 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
+import { PayrollManager } from "@/components/admin/PayrollManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { parsePayrollStoreId } from "@/lib/queries/fetch-payroll";
 import { useActiveStoresQuery, usePayrollQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
-
-const PayrollManager = dynamic(
-  () => import("@/components/admin/PayrollManager").then((m) => ({ default: m.PayrollManager })),
-  { ssr: false }
-);
 
 function PayrollPageInner() {
   const searchParams = useSearchParams();

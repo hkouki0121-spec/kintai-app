@@ -1,14 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { StoreManager } from "@/components/admin/StoreManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import { useShowPageSkeleton, useStoreManagerQuery } from "@/lib/queries/hooks";
-
-const StoreManager = dynamic(
-  () => import("@/components/admin/StoreManager").then((m) => ({ default: m.StoreManager })),
-  { ssr: false }
-);
 
 function resolveWebhookUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
