@@ -2,8 +2,10 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { buildPayrollCsvFilename } from "@/lib/csv/build-payroll-csv";
-import { readPayrollCache, writePayrollCache } from "@/lib/payroll/client-cache";
+import { perfLog } from "@/lib/perf/dev-logger";
+import { invalidatePayroll } from "@/lib/queries/invalidate";
 import { isAllStores } from "@/lib/stores/queries";
 import { recordPerfMetric } from "@/lib/perf/client-metrics";
 import type { PayrollWithEmployee, Store } from "@/types/database";
@@ -18,10 +20,10 @@ import type { EmployeePayrollLog } from "@/lib/payroll/sync-from-attendance";
 
 type Props = {
   stores: Pick<Store, "id" | "name">[];
-  initialStoreId: string;
-  initialPayroll: PayrollWithEmployee[];
-  initialYear: number;
-  initialMonth: number;
+  storeId: string;
+  payroll: PayrollWithEmployee[];
+  year: number;
+  month: number;
 };
 
 function getPayrollRegularHours(row: PayrollWithEmployee): number {
@@ -85,17 +87,16 @@ const PayrollMobileCard = memo(function PayrollMobileCard({ row }: { row: Payrol
 
 export function PayrollManager({
   stores,
-  initialStoreId,
-  initialPayroll,
-  initialYear,
-  initialMonth,
+  storeId: propStoreId,
+  payroll,
+  year: propYear,
+  month: propMonth,
 }: Props) {
   const { isSuperAdmin, role } = useAdminCompany();
   const canExportCsv = !isSuperAdmin && role === "company_admin";
-  const [year, setYear] = useState(String(initialYear));
-  const [month, setMonth] = useState(String(initialMonth));
-  const [storeId, setStoreId] = useState(initialStoreId);
-  const [payroll, setPayroll] = useState(initialPayroll);
+  const [year, setYear] = useState(String(propYear));
+  const [month, setMonth] = useState(String(propMonth));
+  const [storeId, setStoreId] = useState(propStoreId);
   const [loading, setLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -105,31 +106,13 @@ export function PayrollManager({
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    writePayrollCache(initialYear, initialMonth, initialStoreId, initialPayroll);
-    setPayroll(initialPayroll);
-  }, [initialPayroll, initialYear, initialMonth, initialStoreId]);
-
-  const loadPayroll = useCallback(async (y: number, m: number, store: string) => {
-    const cached = readPayrollCache(y, m, store);
-    if (cached) {
-      setPayroll(cached);
-    }
-    const started = performance.now();
-    const params = new URLSearchParams({
-      year: String(y),
-      month: String(m),
-      storeId: store,
-    });
-    const res = await fetch(`/api/admin/payroll/list?${params.toString()}`);
-    if (!res.ok) return;
-    const data = (await res.json()) as { payroll?: PayrollWithEmployee[] };
-    const rows = data.payroll ?? [];
-    setPayroll(rows);
-    writePayrollCache(y, m, store, rows);
-    recordPerfMetric(`給与API ${y}/${m}`, Math.round(performance.now() - started));
-  }, []);
+    setYear(String(propYear));
+    setMonth(String(propMonth));
+    setStoreId(propStoreId);
+  }, [propYear, propMonth, propStoreId]);
 
   const loadDiagnostics = useCallback(async (y: number, m: number, store: string) => {
     setDiagnosticsLoading(true);
@@ -159,6 +142,8 @@ export function PayrollManager({
   const syncFromAttendance = useCallback(
     async (y: number, m: number, store: string, silent = false) => {
       if (!silent) setSyncing(true);
+      perfLog("payroll-calculation-start", { year: y, month: m, store });
+      const calcStarted = performance.now();
       try {
         const res = await fetch("/api/admin/payroll/calculate", {
           method: "POST",
@@ -175,12 +160,7 @@ export function PayrollManager({
         if (!res.ok) {
           throw new Error(data.error ?? "給与計算に失敗しました");
         }
-        if (data.payroll) {
-          setPayroll(data.payroll);
-          writePayrollCache(y, m, store, data.payroll);
-        } else {
-          await loadPayroll(y, m, store);
-        }
+        await invalidatePayroll(queryClient, y, m, store);
         if (data.employeeLogs) {
           setEmployeeResults(data.employeeLogs);
         }
@@ -194,10 +174,16 @@ export function PayrollManager({
           errors: [...(data.errors ?? []), ...failedEmployees.map((name) => `${name}: 給与保存に失敗`)],
         };
       } finally {
+        perfLog("payroll-calculation-complete", {
+          year: y,
+          month: m,
+          store,
+          ms: Math.round(performance.now() - calcStarted),
+        });
         if (!silent) setSyncing(false);
       }
     },
-    [loadPayroll, loadDiagnostics, showDiagnostics]
+    [loadDiagnostics, showDiagnostics, queryClient]
   );
 
   const summary = useMemo(() => {
@@ -222,10 +208,6 @@ export function PayrollManager({
 
   const handlePeriodChange = (e: React.FormEvent) => {
     e.preventDefault();
-    const cached = readPayrollCache(Number(year), Number(month), storeId);
-    if (cached) {
-      setPayroll(cached);
-    }
     router.push(buildPayrollUrl(year, month, storeId));
   };
 

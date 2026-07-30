@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import type { EmployeeWithAttendance, EmployeeWithStore, Store } from "@/types/database";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
+import { invalidateAttendance } from "@/lib/queries/invalidate";
 import { StoreSelect } from "@/components/admin/StoreSelect";
 import { AttendanceEditModal } from "@/components/admin/AttendanceEditModal";
 import { AttendanceManualCreateModal } from "@/components/admin/AttendanceManualCreateModal";
@@ -17,9 +19,9 @@ type Props = {
   stores: Pick<Store, "id" | "name">[];
   employees: EmployeeWithStore[];
   correctedRecordIds: string[];
-  initialStoreId: string;
-  initialFrom: string;
-  initialTo: string;
+  storeId: string;
+  from: string;
+  to: string;
 };
 
 export function AttendanceTable({
@@ -27,19 +29,28 @@ export function AttendanceTable({
   stores,
   employees,
   correctedRecordIds,
-  initialStoreId,
-  initialFrom,
-  initialTo,
+  storeId: initialStoreId,
+  from: initialFrom,
+  to: initialTo,
 }: Props) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [storeId, setStoreId] = useState(initialStoreId);
   const [editingRecord, setEditingRecord] = useState<EmployeeWithAttendance | null>(null);
   const [showManualCreate, setShowManualCreate] = useState(false);
   const correctedSet = useMemo(() => new Set(correctedRecordIds), [correctedRecordIds]);
 
+  useEffect(() => {
+    setStoreId(initialStoreId);
+  }, [initialStoreId]);
+
   const handleEdit = useCallback((record: EmployeeWithAttendance) => {
     setEditingRecord(record);
   }, []);
+
+  const invalidateCurrent = useCallback(async () => {
+    await invalidateAttendance(queryClient, initialFrom, initialTo, initialStoreId);
+  }, [queryClient, initialFrom, initialTo, initialStoreId]);
 
   const applyFilter = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -81,9 +92,9 @@ export function AttendanceTable({
         <AttendanceEditModal
           record={editingRecord}
           onClose={() => setEditingRecord(null)}
-          onSaved={() => {
+          onSaved={async () => {
             setEditingRecord(null);
-            router.refresh();
+            await invalidateCurrent();
           }}
         />
       )}
@@ -92,9 +103,9 @@ export function AttendanceTable({
         <AttendanceManualCreateModal
           employees={employees}
           onClose={() => setShowManualCreate(false)}
-          onSaved={() => {
+          onSaved={async () => {
             setShowManualCreate(false);
-            router.refresh();
+            await invalidateCurrent();
           }}
         />
       )}

@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { EMPLOYEE_LIST_SELECT_COLUMNS } from "@/lib/employees/constants";
 import type { DuplicateEmployeeCodeGroup } from "@/lib/employees/duplicate-code";
 import { groupEmployeesByStore } from "@/lib/employees/group-by-store";
 import { downloadEmployeesCsv } from "@/lib/csv/export-employees-csv";
@@ -11,10 +11,19 @@ import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
-import { FaceRegisterModal } from "@/components/admin/FaceRegisterModal";
+import dynamic from "next/dynamic";
+
+const FaceRegisterModal = dynamic(
+  () =>
+    import("@/components/admin/FaceRegisterModal").then((mod) => ({
+      default: mod.FaceRegisterModal,
+    })),
+  { ssr: false }
+);
 import { EmployeeDeleteConfirmModal } from "@/components/admin/EmployeeDeleteConfirmModal";
 import type { FaceDescriptorEntry } from "@/types/database";
 import { formatJstDate, formatYen } from "@/lib/format";
+import { invalidateEmployees } from "@/lib/queries/invalidate";
 
 type DeleteTarget = {
   employee: EmployeeWithStore;
@@ -23,7 +32,7 @@ type DeleteTarget = {
 };
 
 type Props = {
-  initialEmployees: EmployeeWithStore[];
+  employees: EmployeeWithStore[];
   stores: Pick<Store, "id" | "name" | "is_active" | "company_id">[];
   duplicateCodes: DuplicateEmployeeCodeGroup[];
 };
@@ -56,8 +65,8 @@ function formatApiError(payload: {
   return parts.join("\n");
 }
 
-export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Props) {
-  const [employees, setEmployees] = useState(initialEmployees);
+export function EmployeeManager({ employees, stores, duplicateCodes }: Props) {
+  const queryClient = useQueryClient();
   const [filterStoreId, setFilterStoreId] = useState(ALL_STORES_VALUE);
   const [search, setSearch] = useState("");
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set());
@@ -92,11 +101,7 @@ export function EmployeeManager({ initialEmployees, stores, duplicateCodes }: Pr
   );
 
   const refresh = async () => {
-    const { data } = await supabase
-      .from("employees")
-      .select(`${EMPLOYEE_LIST_SELECT_COLUMNS}, stores(id, name)`)
-      .order("name");
-    setEmployees((data as unknown as EmployeeWithStore[]) ?? []);
+    await invalidateEmployees(queryClient);
   };
 
   const toggleStore = (storeId: string) => {

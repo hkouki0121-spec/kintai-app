@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { invalidateStores } from "@/lib/queries/invalidate";
 import type { LineGroup, Store } from "@/types/database";
 import { LineNotifySetup } from "@/components/admin/LineNotifySetup";
 import { StoreDeleteConfirmModal } from "@/components/admin/StoreDeleteConfirmModal";
@@ -15,8 +17,8 @@ import { Alert } from "@/components/ui/Alert";
 import { Toast } from "@/components/ui/Toast";
 
 type Props = {
-  initialStores: Store[];
-  initialGroups: LineGroup[];
+  stores: Store[];
+  groups: LineGroup[];
   addFriendUrl: string | null;
   webhookUrl: string;
   appBaseUrl: string;
@@ -44,17 +46,16 @@ function storeToDraft(store: Store): StoreEditDraft {
 }
 
 export function StoreManager({
-  initialStores,
-  initialGroups,
+  stores,
+  groups,
   addFriendUrl,
   webhookUrl,
   appBaseUrl,
   companies = [],
 }: Props) {
+  const queryClient = useQueryClient();
   const { companyId, isSuperAdmin, role } = useAdminCompany();
   const canDeleteStore = !isSuperAdmin && role === "company_admin";
-  const [stores, setStores] = useState(initialStores);
-  const [groups] = useState(initialGroups);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -71,22 +72,8 @@ export function StoreManager({
   const [message, setMessage] = useState<string | null>(null);
   const supabase = createClient();
 
-  const loadStores = async () => {
-    console.log("[stores/delete] loadStores start");
-    const { data, error } = await supabase.from("stores").select("*").order("name");
-    if (error) {
-      console.error("[stores/delete] loadStores failed", {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-      });
-      return;
-    }
-    console.log("[stores/delete] loadStores success", {
-      count: data?.length ?? 0,
-      ids: (data ?? []).map((store: { id: string }) => store.id),
-    });
-    setStores((data as Store[]) ?? []);
+  const refreshStores = async () => {
+    await invalidateStores(queryClient);
   };
 
   useEffect(() => {
@@ -122,12 +109,12 @@ export function StoreManager({
     setAddress("");
     setPhone("");
     setMessage("店舗を追加しました");
-    await loadStores();
+    await refreshStores();
   };
 
   const handleToggleActive = async (store: Store) => {
     await supabase.from("stores").update({ is_active: !store.is_active }).eq("id", store.id);
-    await loadStores();
+    await refreshStores();
   };
 
   const handleDeleteStore = async () => {
@@ -196,7 +183,7 @@ export function StoreManager({
       setDeleteTarget(null);
       setDeleteError(null);
       setToast("店舗を削除しました");
-      await loadStores();
+      await refreshStores();
     } catch (error) {
       console.error("[stores/delete] network error", {
         message: error instanceof Error ? error.message : String(error),
@@ -242,7 +229,7 @@ export function StoreManager({
     }
 
     setMessage("店舗情報を更新しました");
-    await loadStores();
+    await refreshStores();
   };
 
   const selectedGroupLabel = (groupId: string | null) => {

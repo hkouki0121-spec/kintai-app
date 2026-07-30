@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo } from "react";
 import type { CompanyContext } from "@/lib/auth/company-context";
+import { AdminRenderProfiler } from "@/lib/perf/render-profiler";
 
 const AdminCompanyContext = createContext<CompanyContext | null>(null);
 
@@ -12,8 +13,11 @@ export function AdminCompanyProvider({
   context: CompanyContext;
   children: React.ReactNode;
 }) {
+  const value = useMemo(() => context, [context]);
   return (
-    <AdminCompanyContext.Provider value={context}>{children}</AdminCompanyContext.Provider>
+    <AdminRenderProfiler id="AuthProvider">
+      <AdminCompanyContext.Provider value={value}>{children}</AdminCompanyContext.Provider>
+    </AdminRenderProfiler>
   );
 }
 

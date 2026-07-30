@@ -1,0 +1,57 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { AttendanceTable } from "@/components/admin/AttendanceTable";
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
+import { getCurrentMonthDateRangeInJst } from "@/lib/attendance/date-range";
+import { useActiveStoresQuery, useAttendanceQuery } from "@/lib/queries/hooks";
+import { ALL_STORES_VALUE } from "@/lib/stores/constants";
+
+function AttendancePageInner() {
+  const searchParams = useSearchParams();
+  const defaultRange = getCurrentMonthDateRangeInJst();
+  const storeId = searchParams.get("store") ?? ALL_STORES_VALUE;
+  const from = searchParams.get("from") ?? defaultRange.from;
+  const to = searchParams.get("to") ?? defaultRange.to;
+
+  const { activeStores, isLoading: storesLoading, data: storesData } = useActiveStoresQuery();
+  const { data, isLoading: attendanceLoading } = useAttendanceQuery(from, to, storeId);
+
+  const isFirstLoad = (storesLoading && !storesData) || (attendanceLoading && !data);
+  if (isFirstLoad) {
+    return <AdminPageSkeleton pathname="/admin/attendance" variant="table" />;
+  }
+
+  if (!data) {
+    return <p className="text-sm text-slate-500">読み込みに失敗しました</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900">勤怠履歴</h2>
+        <p className="text-sm text-slate-600">
+          店舗・期間で出勤・退勤の記録を確認できます。管理者のみ勤怠の修正・手動登録が可能です。
+        </p>
+      </div>
+      <AttendanceTable
+        records={data.records}
+        stores={activeStores}
+        employees={data.employees}
+        correctedRecordIds={data.correctedRecordIds}
+        storeId={storeId}
+        from={from}
+        to={to}
+      />
+    </div>
+  );
+}
+
+export function AttendancePageClient() {
+  return (
+    <Suspense fallback={<AdminPageSkeleton pathname="/admin/attendance" variant="table" />}>
+      <AttendancePageInner />
+    </Suspense>
+  );
+}
