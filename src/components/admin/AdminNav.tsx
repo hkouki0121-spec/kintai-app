@@ -2,10 +2,11 @@
 
 import { memo, useCallback } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
+import { useAdminNavigation } from "@/components/admin/AdminNavigationProvider";
 import { clearAdminCache } from "@/lib/queries/invalidate";
 import { prefetchAdminRoute } from "@/lib/queries/prefetch-route";
 import { Button } from "@/components/ui/Button";
@@ -26,12 +27,35 @@ const NavLink = memo(function NavLink({
   label,
   active,
   onPrefetch,
+  onNavigate,
+  optimistic,
 }: {
   href: string;
   label: string;
   active: boolean;
   onPrefetch: (href: string) => void;
+  onNavigate: (href: string) => void;
+  optimistic: boolean;
 }) {
+  if (optimistic) {
+    return (
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          onNavigate(href);
+        }}
+        onMouseEnter={() => onPrefetch(href)}
+        onTouchStart={() => onPrefetch(href)}
+        className={`rounded-lg px-3 py-2 text-sm font-medium ${
+          active ? "bg-blue-100 text-blue-800" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        {label}
+      </a>
+    );
+  }
+
   return (
     <Link
       href={href}
@@ -65,10 +89,14 @@ const AdminNavBrand = memo(function AdminNavBrand() {
 
 const AdminNavLinks = memo(function AdminNavLinks({
   onPrefetch,
+  onNavigate,
+  isKeepAliveRoute,
 }: {
   onPrefetch: (href: string) => void;
+  onNavigate: (href: string) => void;
+  isKeepAliveRoute: (href: string) => boolean;
 }) {
-  const pathname = usePathname();
+  const { displayPath } = useAdminNavigation();
   const { isSuperAdmin } = useAdminCompany();
   const links = isSuperAdmin
     ? [...baseLinks, { href: "/admin/companies", label: "会社管理" } as const]
@@ -81,8 +109,10 @@ const AdminNavLinks = memo(function AdminNavLinks({
           key={link.href}
           href={link.href}
           label={link.label}
-          active={pathname === link.href}
+          active={displayPath === link.href}
           onPrefetch={onPrefetch}
+          onNavigate={onNavigate}
+          optimistic={isKeepAliveRoute(link.href)}
         />
       ))}
     </nav>
@@ -110,6 +140,7 @@ const AdminNavLogout = memo(function AdminNavLogout() {
 export const AdminNav = memo(function AdminNav() {
   const queryClient = useQueryClient();
   const { isSuperAdmin } = useAdminCompany();
+  const { navigateTo, isKeepAliveRoute } = useAdminNavigation();
   const onPrefetch = useCallback(
     (href: string) => prefetchAdminRoute(queryClient, href, isSuperAdmin),
     [queryClient, isSuperAdmin]
@@ -120,7 +151,11 @@ export const AdminNav = memo(function AdminNav() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <AdminNavBrand />
-          <AdminNavLinks onPrefetch={onPrefetch} />
+          <AdminNavLinks
+            onPrefetch={onPrefetch}
+            onNavigate={navigateTo}
+            isKeepAliveRoute={isKeepAliveRoute}
+          />
           <AdminNavLogout />
         </div>
       </header>

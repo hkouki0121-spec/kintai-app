@@ -2,32 +2,25 @@
 
 import { usePathname } from "next/navigation";
 import { useRef, type ReactNode } from "react";
-
-/** 計測対象の主要ルートはマウントを維持し、表示切替のみ行う */
-const KEEP_ALIVE_ROUTES = new Set([
-  "/admin/dashboard",
-  "/admin/employees",
-  "/admin/payroll",
-  "/admin/attendance",
-  "/admin/stores",
-]);
+import { KEEP_ALIVE_ROUTES, useAdminNavigation } from "@/components/admin/AdminNavigationProvider";
 
 export function AdminKeepAliveContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { displayPath } = useAdminNavigation();
   const cache = useRef(new Map<string, ReactNode>());
 
   if (KEEP_ALIVE_ROUTES.has(pathname) && !cache.current.has(pathname)) {
     cache.current.set(pathname, children);
   }
 
-  if (!KEEP_ALIVE_ROUTES.has(pathname)) {
+  if (!KEEP_ALIVE_ROUTES.has(displayPath)) {
     return <>{children}</>;
   }
 
   return (
     <>
       {Array.from(cache.current.entries()).map(([path, node]) => (
-        <div key={path} hidden={path !== pathname} aria-hidden={path !== pathname}>
+        <div key={path} hidden={path !== displayPath} aria-hidden={path !== displayPath}>
           {node}
         </div>
       ))}

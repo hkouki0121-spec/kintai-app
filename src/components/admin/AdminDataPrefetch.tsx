@@ -51,12 +51,7 @@ export function AdminDataPrefetch() {
       });
     };
 
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(prefetch, { timeout: 2000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const timer = setTimeout(prefetch, 100);
-    return () => clearTimeout(timer);
+    prefetch();
   }, [queryClient, isSuperAdmin]);
 
   return null;
