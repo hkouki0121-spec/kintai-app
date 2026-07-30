@@ -2,10 +2,15 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { PayrollManager } from "@/components/admin/PayrollManager";
+import dynamic from "next/dynamic";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { parsePayrollStoreId } from "@/lib/queries/fetch-payroll";
-import { useActiveStoresQuery, usePayrollQuery } from "@/lib/queries/hooks";
+import { useActiveStoresQuery, usePayrollQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
+
+const PayrollManager = dynamic(
+  () => import("@/components/admin/PayrollManager").then((m) => ({ default: m.PayrollManager })),
+  { ssr: false }
+);
 
 function PayrollPageInner() {
   const searchParams = useSearchParams();
@@ -14,12 +19,12 @@ function PayrollPageInner() {
   const month = Number(searchParams.get("month")) || now.getMonth() + 1;
   const storeId = parsePayrollStoreId(searchParams.get("store"));
 
-  const { activeStores, isLoading: storesLoading, data: storesData } = useActiveStoresQuery();
-  const { data: payroll, isLoading: payrollLoading } = usePayrollQuery(year, month, storeId);
+  const { activeStores } = useActiveStoresQuery();
+  const { data: payroll } = usePayrollQuery(year, month, storeId);
+  const ready = payroll !== undefined;
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/payroll");
 
-  const isFirstLoad =
-    (storesLoading && !storesData) || (payrollLoading && payroll === undefined);
-  if (isFirstLoad) {
+  if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/payroll" variant="payroll" />;
   }
 
@@ -42,7 +47,7 @@ function PayrollPageInner() {
 
 export function PayrollPageClient() {
   return (
-    <Suspense fallback={<AdminPageSkeleton pathname="/admin/payroll" variant="payroll" />}>
+    <Suspense fallback={null}>
       <PayrollPageInner />
     </Suspense>
   );

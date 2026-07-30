@@ -61,6 +61,19 @@ export function usePayrollQuery(year: number, month: number, storeId: string) {
   });
 }
 
+/** キャッシュがある場合は即時表示、初回未取得時のみ Skeleton */
+export function useShowPageSkeleton(ready: boolean, pathname: string): boolean {
+  if (ready) return false;
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = sessionStorage.getItem("admin:visited-routes");
+    const visited = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    return !visited.has(pathname);
+  } catch {
+    return true;
+  }
+}
+
 export function useStoreManagerQuery(isSuperAdmin: boolean) {
   return useQuery({
     queryKey: adminQueryKeys.storeManager,

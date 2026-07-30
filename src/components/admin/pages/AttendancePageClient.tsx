@@ -2,11 +2,16 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { AttendanceTable } from "@/components/admin/AttendanceTable";
+import dynamic from "next/dynamic";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getCurrentMonthDateRangeInJst } from "@/lib/attendance/date-range";
-import { useActiveStoresQuery, useAttendanceQuery } from "@/lib/queries/hooks";
+import { useActiveStoresQuery, useAttendanceQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
+
+const AttendanceTable = dynamic(
+  () => import("@/components/admin/AttendanceTable").then((m) => ({ default: m.AttendanceTable })),
+  { ssr: false }
+);
 
 function AttendancePageInner() {
   const searchParams = useSearchParams();
@@ -15,17 +20,16 @@ function AttendancePageInner() {
   const from = searchParams.get("from") ?? defaultRange.from;
   const to = searchParams.get("to") ?? defaultRange.to;
 
-  const { activeStores, isLoading: storesLoading, data: storesData } = useActiveStoresQuery();
-  const { data, isLoading: attendanceLoading } = useAttendanceQuery(from, to, storeId);
+  const { activeStores } = useActiveStoresQuery();
+  const { data } = useAttendanceQuery(from, to, storeId);
+  const ready = !!data;
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/attendance");
 
-  const isFirstLoad = (storesLoading && !storesData) || (attendanceLoading && !data);
-  if (isFirstLoad) {
+  if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/attendance" variant="table" />;
   }
 
-  if (!data) {
-    return <p className="text-sm text-slate-500">読み込みに失敗しました</p>;
-  }
+  if (!data) return null;
 
   return (
     <div className="space-y-6">
@@ -50,7 +54,7 @@ function AttendancePageInner() {
 
 export function AttendancePageClient() {
   return (
-    <Suspense fallback={<AdminPageSkeleton pathname="/admin/attendance" variant="table" />}>
+    <Suspense fallback={null}>
       <AttendancePageInner />
     </Suspense>
   );

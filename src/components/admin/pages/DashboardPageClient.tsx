@@ -4,23 +4,22 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { DashboardContent } from "@/components/admin/DashboardContent";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
-import { useActiveStoresQuery, useDashboardQuery } from "@/lib/queries/hooks";
+import { useActiveStoresQuery, useDashboardQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 
 function DashboardPageInner() {
   const searchParams = useSearchParams();
   const storeId = searchParams.get("store") ?? ALL_STORES_VALUE;
-  const { activeStores, isLoading: storesLoading, data: storesData } = useActiveStoresQuery();
-  const { data, isLoading: dashLoading } = useDashboardQuery(storeId);
+  const { activeStores } = useActiveStoresQuery();
+  const { data } = useDashboardQuery(storeId);
+  const ready = !!data;
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/dashboard");
 
-  const isFirstLoad = (storesLoading && !storesData) || (dashLoading && !data);
-  if (isFirstLoad) {
+  if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/dashboard" variant="dashboard" />;
   }
 
-  if (!data) {
-    return <p className="text-sm text-slate-500">読み込みに失敗しました</p>;
-  }
+  if (!data) return null;
 
   return (
     <DashboardContent
@@ -34,7 +33,7 @@ function DashboardPageInner() {
 
 export function DashboardPageClient() {
   return (
-    <Suspense fallback={<AdminPageSkeleton pathname="/admin/dashboard" variant="dashboard" />}>
+    <Suspense fallback={null}>
       <DashboardPageInner />
     </Suspense>
   );

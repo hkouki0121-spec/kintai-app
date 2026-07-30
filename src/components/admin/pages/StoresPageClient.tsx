@@ -1,39 +1,40 @@
 "use client";
 
-import { StoreManager } from "@/components/admin/StoreManager";
+import dynamic from "next/dynamic";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
-import { useStoreManagerQuery } from "@/lib/queries/hooks";
+import { useShowPageSkeleton, useStoreManagerQuery } from "@/lib/queries/hooks";
+
+const StoreManager = dynamic(
+  () => import("@/components/admin/StoreManager").then((m) => ({ default: m.StoreManager })),
+  { ssr: false }
+);
 
 function resolveWebhookUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   if (configured) return `${configured}/api/line/webhook`;
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/api/line/webhook`;
-  }
+  if (typeof window !== "undefined") return `${window.location.origin}/api/line/webhook`;
   return "/api/line/webhook";
 }
 
 function resolveAppBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   if (configured) return configured;
-  if (typeof window !== "undefined") {
-    return window.location.origin;
-  }
+  if (typeof window !== "undefined") return window.location.origin;
   return "";
 }
 
 export function StoresPageClient() {
   const { isSuperAdmin } = useAdminCompany();
-  const { data, isLoading } = useStoreManagerQuery(isSuperAdmin);
+  const { data } = useStoreManagerQuery(isSuperAdmin);
+  const ready = !!data;
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/stores");
 
-  if (isLoading && !data) {
+  if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/stores" variant="table" />;
   }
 
-  if (!data) {
-    return <p className="text-sm text-slate-500">読み込みに失敗しました</p>;
-  }
+  if (!data) return null;
 
   const addFriendUrl = process.env.NEXT_PUBLIC_LINE_ADD_FRIEND_URL?.trim() || null;
 

@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import { clearAdminCache } from "@/lib/queries/invalidate";
+import { prefetchAdminRoute } from "@/lib/queries/prefetch-route";
 import { Button } from "@/components/ui/Button";
 import { AdminRenderProfiler } from "@/lib/perf/render-profiler";
 
@@ -24,15 +25,19 @@ const NavLink = memo(function NavLink({
   href,
   label,
   active,
+  onPrefetch,
 }: {
   href: string;
   label: string;
   active: boolean;
+  onPrefetch: (href: string) => void;
 }) {
   return (
     <Link
       href={href}
       prefetch
+      onMouseEnter={() => onPrefetch(href)}
+      onTouchStart={() => onPrefetch(href)}
       className={`rounded-lg px-3 py-2 text-sm font-medium ${
         active ? "bg-blue-100 text-blue-800" : "text-slate-600 hover:bg-slate-100"
       }`}
@@ -58,7 +63,11 @@ const AdminNavBrand = memo(function AdminNavBrand() {
   );
 });
 
-const AdminNavLinks = memo(function AdminNavLinks() {
+const AdminNavLinks = memo(function AdminNavLinks({
+  onPrefetch,
+}: {
+  onPrefetch: (href: string) => void;
+}) {
   const pathname = usePathname();
   const { isSuperAdmin } = useAdminCompany();
   const links = isSuperAdmin
@@ -73,6 +82,7 @@ const AdminNavLinks = memo(function AdminNavLinks() {
           href={link.href}
           label={link.label}
           active={pathname === link.href}
+          onPrefetch={onPrefetch}
         />
       ))}
     </nav>
@@ -98,12 +108,19 @@ const AdminNavLogout = memo(function AdminNavLogout() {
 });
 
 export const AdminNav = memo(function AdminNav() {
+  const queryClient = useQueryClient();
+  const { isSuperAdmin } = useAdminCompany();
+  const onPrefetch = useCallback(
+    (href: string) => prefetchAdminRoute(queryClient, href, isSuperAdmin),
+    [queryClient, isSuperAdmin]
+  );
+
   return (
     <AdminRenderProfiler id="Header">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <AdminNavBrand />
-          <AdminNavLinks />
+          <AdminNavLinks onPrefetch={onPrefetch} />
           <AdminNavLogout />
         </div>
       </header>
