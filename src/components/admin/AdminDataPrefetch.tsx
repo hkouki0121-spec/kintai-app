@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { getCurrentMonthDateRangeInJst } from "@/lib/attendance/date-range";
 import { adminQueryKeys } from "@/lib/queries/keys";
@@ -12,10 +13,12 @@ import { fetchPayrollList } from "@/lib/queries/fetch-payroll";
 import { fetchStoreManagerData } from "@/lib/queries/fetch-store-manager";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
+import { KEEP_ALIVE_ROUTES } from "@/components/admin/AdminNavigationProvider";
 
 /** 認証後に全管理画面データをバックグラウンドでプリフェッチ */
 export function AdminDataPrefetch() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { isSuperAdmin } = useAdminCompany();
 
   useEffect(() => {
@@ -52,7 +55,10 @@ export function AdminDataPrefetch() {
     };
 
     prefetch();
-  }, [queryClient, isSuperAdmin]);
+    for (const route of KEEP_ALIVE_ROUTES) {
+      router.prefetch(route);
+    }
+  }, [queryClient, isSuperAdmin, router]);
 
   return null;
 }

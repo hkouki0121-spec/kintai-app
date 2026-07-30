@@ -39,16 +39,16 @@ function loadEnv() {
 loadEnv();
 
 const TRANSITIONS = [
-  { id: 1, from: "ダッシュボード", to: "従業員", navTo: "従業員", heading: "従業員一覧" },
-  { id: 2, from: "従業員", to: "給与", navTo: "給与", heading: "給与一覧" },
-  { id: 3, from: "給与", to: "勤怠", navTo: "勤怠履歴", heading: "勤怠履歴" },
-  { id: 4, from: "勤怠", to: "店舗", navTo: "店舗管理", heading: "店舗管理" },
-  { id: 5, from: "店舗", to: "ダッシュボード", navTo: "ダッシュボード", heading: "ダッシュボード" },
+  { id: 1, from: "ダッシュボード", to: "従業員", navTo: "従業員", heading: "従業員一覧", path: "/admin/employees" },
+  { id: 2, from: "従業員", to: "給与", navTo: "給与", heading: "給与一覧", path: "/admin/payroll" },
+  { id: 3, from: "給与", to: "勤怠", navTo: "勤怠履歴", heading: "勤怠履歴", path: "/admin/attendance" },
+  { id: 4, from: "勤怠", to: "店舗", navTo: "店舗管理", heading: "店舗管理", path: "/admin/stores" },
+  { id: 5, from: "店舗", to: "ダッシュボード", navTo: "ダッシュボード", heading: "ダッシュボード", path: "/admin/dashboard" },
 ];
 
 const CACHED_REVISIT = [
-  { id: "C1", from: "ダッシュボード", to: "従業員(再訪)", navTo: "従業員", heading: "従業員一覧" },
-  { id: "C2", from: "従業員(再訪)", to: "給与(再訪)", navTo: "給与", heading: "給与一覧" },
+  { id: "C1", from: "ダッシュボード", to: "従業員(再訪)", navTo: "従業員", heading: "従業員一覧", path: "/admin/employees" },
+  { id: "C2", from: "従業員(再訪)", to: "給与(再訪)", navTo: "給与", heading: "給与一覧", path: "/admin/payroll" },
 ];
 
 async function createAuthCookies() {
@@ -93,7 +93,7 @@ async function createAuthCookies() {
   }));
 }
 
-async function measureOne(page, { from, to, navTo, heading }, passLabel) {
+async function measureOne(page, { from, to, navTo, heading, path }, passLabel) {
   const perfLogs = [];
   const apiTimings = [];
   const requests = [];
@@ -123,7 +123,7 @@ async function measureOne(page, { from, to, navTo, heading }, passLabel) {
   page.on("response", onResponse);
 
   const t0 = performance.now();
-  await page.getByRole("link", { name: navTo, exact: true }).click();
+  await page.getByRole("link", { name: navTo, exact: true }).click({ noWaitAfter: true });
 
   let skeletonMs = 0;
   const skelStart = performance.now();
@@ -136,7 +136,7 @@ async function measureOne(page, { from, to, navTo, heading }, passLabel) {
     skeletonMs = 0;
   }
 
-  await page.locator(`h2:has-text("${heading}")`).first().waitFor({ timeout: 30000 });
+  await page.locator(`[data-visible-page="${path}"]`).waitFor({ state: "visible", timeout: 30000 });
   const transitionMs = Math.round(performance.now() - t0);
 
   page.off("console", onConsole);

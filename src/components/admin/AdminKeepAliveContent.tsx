@@ -9,7 +9,7 @@ export function AdminKeepAliveContent({ children }: { children: ReactNode }) {
   const { displayPath } = useAdminNavigation();
   const cache = useRef(new Map<string, ReactNode>());
 
-  if (KEEP_ALIVE_ROUTES.has(pathname) && !cache.current.has(pathname)) {
+  if (KEEP_ALIVE_ROUTES.has(pathname)) {
     cache.current.set(pathname, children);
   }
 
@@ -20,7 +20,12 @@ export function AdminKeepAliveContent({ children }: { children: ReactNode }) {
   return (
     <>
       {Array.from(cache.current.entries()).map(([path, node]) => (
-        <div key={path} hidden={path !== displayPath} aria-hidden={path !== displayPath}>
+        <div
+          key={path}
+          hidden={path !== displayPath}
+          aria-hidden={path !== displayPath}
+          data-visible-page={path === displayPath ? path : undefined}
+        >
           {node}
         </div>
       ))}
