@@ -3,6 +3,7 @@
 import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from "react";
 import { perfLog } from "@/lib/perf/dev-logger";
 import { recordPerfMetric } from "@/lib/perf/client-metrics";
+import { countRender } from "@/lib/perf/render-counts";
 
 type Props = {
   id: string;
@@ -10,6 +11,7 @@ type Props = {
 };
 
 const onRender: ProfilerOnRenderCallback = (id, phase, actualDuration) => {
+  countRender(id);
   if (process.env.NODE_ENV !== "development") return;
   const ms = Math.round(actualDuration * 10) / 10;
   perfLog("render-complete", { component: id, phase, ms });
@@ -18,11 +20,8 @@ const onRender: ProfilerOnRenderCallback = (id, phase, actualDuration) => {
   }
 };
 
-/** 開発環境のみ React Profiler で再レンダリングを計測 */
+/** React Profiler。回数は本番でも window.__ADMIN_RENDERS に記録する */
 export function AdminRenderProfiler({ id, children }: Props) {
-  if (process.env.NODE_ENV !== "development") {
-    return children;
-  }
   return (
     <Profiler id={id} onRender={onRender}>
       {children}

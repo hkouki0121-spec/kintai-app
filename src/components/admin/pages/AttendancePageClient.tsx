@@ -6,6 +6,7 @@ import { AttendanceTable } from "@/components/admin/AttendanceTable";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getCurrentMonthDateRangeInJst } from "@/lib/attendance/date-range";
 import { useActiveStoresQuery, useAttendanceQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
+import { adminQueryKeys } from "@/lib/queries/keys";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 
 function AttendancePageInner() {
@@ -18,7 +19,11 @@ function AttendancePageInner() {
   const { activeStores } = useActiveStoresQuery();
   const { data } = useAttendanceQuery(from, to, storeId);
   const ready = !!data;
-  const showSkeleton = useShowPageSkeleton(ready, "/admin/attendance");
+  const showSkeleton = useShowPageSkeleton(
+    ready,
+    "/admin/attendance",
+    adminQueryKeys.attendance(from, to, storeId)
+  );
 
   if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/attendance" variant="table" />;

@@ -6,6 +6,7 @@ import { PayrollManager } from "@/components/admin/PayrollManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { parsePayrollStoreId } from "@/lib/queries/fetch-payroll";
 import { useActiveStoresQuery, usePayrollQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
+import { adminQueryKeys } from "@/lib/queries/keys";
 
 function PayrollPageInner() {
   const searchParams = useSearchParams();
@@ -17,7 +18,11 @@ function PayrollPageInner() {
   const { activeStores } = useActiveStoresQuery();
   const { data: payroll } = usePayrollQuery(year, month, storeId);
   const ready = payroll !== undefined;
-  const showSkeleton = useShowPageSkeleton(ready, "/admin/payroll");
+  const showSkeleton = useShowPageSkeleton(
+    ready,
+    "/admin/payroll",
+    adminQueryKeys.payroll(year, month, storeId)
+  );
 
   if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/payroll" variant="payroll" />;

@@ -8,4 +8,5 @@ export const adminQueryKeys = {
     ["admin", "payroll", year, month, storeId] as const,
   attendance: (from: string, to: string, storeId: string) =>
     ["admin", "attendance", from, to, storeId] as const,
+  lineConfig: ["admin", "line-config"] as const,
 };

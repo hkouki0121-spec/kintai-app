@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
-import { useAdminNavigation } from "@/components/admin/AdminNavigationProvider";
+import {
+  useAdminNavigation,
+  useAdminNavigationActions,
+} from "@/components/admin/AdminNavigationProvider";
 import { clearAdminCache } from "@/lib/queries/invalidate";
 import { prefetchAdminRoute } from "@/lib/queries/prefetch-route";
 import { Button } from "@/components/ui/Button";
@@ -145,7 +148,7 @@ const AdminNavLogout = memo(function AdminNavLogout() {
 export const AdminNav = memo(function AdminNav() {
   const queryClient = useQueryClient();
   const { isSuperAdmin } = useAdminCompany();
-  const { navigateTo, isKeepAliveRoute } = useAdminNavigation();
+  const { navigateTo, isKeepAliveRoute } = useAdminNavigationActions();
   const onPrefetch = useCallback(
     (href: string) => prefetchAdminRoute(queryClient, href, isSuperAdmin),
     [queryClient, isSuperAdmin]

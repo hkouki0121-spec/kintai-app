@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { DashboardContent } from "@/components/admin/DashboardContent";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useActiveStoresQuery, useDashboardQuery, useShowPageSkeleton } from "@/lib/queries/hooks";
+import { adminQueryKeys } from "@/lib/queries/keys";
 import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 
 function DashboardPageInner() {
@@ -13,7 +14,7 @@ function DashboardPageInner() {
   const { activeStores } = useActiveStoresQuery();
   const { data } = useDashboardQuery(storeId);
   const ready = !!data;
-  const showSkeleton = useShowPageSkeleton(ready, "/admin/dashboard");
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/dashboard", adminQueryKeys.dashboard(storeId));
 
   if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/dashboard" variant="dashboard" />;

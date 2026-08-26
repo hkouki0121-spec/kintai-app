@@ -3,12 +3,17 @@
 import { EmployeeManager } from "@/components/admin/EmployeeManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useEmployeesQuery, useShowPageSkeleton, useStoresQuery } from "@/lib/queries/hooks";
+import { adminQueryKeys } from "@/lib/queries/keys";
 
 export function EmployeesPageClient() {
   const { data: stores } = useStoresQuery();
   const { data } = useEmployeesQuery();
   const ready = !!(stores && data);
-  const showSkeleton = useShowPageSkeleton(ready, "/admin/employees");
+  const showSkeleton = useShowPageSkeleton(
+    ready,
+    "/admin/employees",
+    adminQueryKeys.employees
+  );
 
   if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/employees" variant="table" />;

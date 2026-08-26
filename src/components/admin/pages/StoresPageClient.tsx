@@ -4,6 +4,7 @@ import { StoreManager } from "@/components/admin/StoreManager";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import { useShowPageSkeleton, useStoreManagerQuery } from "@/lib/queries/hooks";
+import { adminQueryKeys } from "@/lib/queries/keys";
 
 function resolveWebhookUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
@@ -23,7 +24,7 @@ export function StoresPageClient() {
   const { isSuperAdmin } = useAdminCompany();
   const { data } = useStoreManagerQuery(isSuperAdmin);
   const ready = !!data;
-  const showSkeleton = useShowPageSkeleton(ready, "/admin/stores");
+  const showSkeleton = useShowPageSkeleton(ready, "/admin/stores", adminQueryKeys.storeManager);
 
   if (showSkeleton) {
     return <AdminPageSkeleton pathname="/admin/stores" variant="table" />;

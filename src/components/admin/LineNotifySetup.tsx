@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { LineGroup } from "@/types/database";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
+import { adminQueryKeys } from "@/lib/queries/keys";
 
 type Props = {
   initialGroups: LineGroup[];
   addFriendUrl: string | null;
   webhookUrl: string;
+  /** false の間は /api/line/config を呼ばない（店舗ページ表示を優先） */
+  loadConfig?: boolean;
 };
 
 type LineConfigResponse = {
@@ -24,19 +28,26 @@ type LineConfigResponse = {
   hints?: string[];
 };
 
-export function LineNotifySetup({ initialGroups, addFriendUrl, webhookUrl }: Props) {
+export function LineNotifySetup({
+  initialGroups,
+  addFriendUrl,
+  webhookUrl,
+  loadConfig = false,
+}: Props) {
   const [groups, setGroups] = useState(initialGroups);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [lineConfig, setLineConfig] = useState<LineConfigResponse | null>(null);
-
-  useEffect(() => {
-    fetch("/api/line/config")
-      .then((response) => response.json())
-      .then((payload: LineConfigResponse) => setLineConfig(payload))
-      .catch(() => setLineConfig(null));
-  }, []);
+  const { data: lineConfig = null } = useQuery({
+    queryKey: adminQueryKeys.lineConfig,
+    queryFn: async () => {
+      const response = await fetch("/api/line/config");
+      return (await response.json()) as LineConfigResponse;
+    },
+    enabled: loadConfig,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+  });
 
   const copyText = useCallback(async (key: string, text: string) => {
     try {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { adminQueryKeys } from "@/lib/queries/keys";
 import { authQueryOptions } from "@/lib/queries/defaults";
 import { fetchCompanyContext } from "@/lib/queries/fetch-company-context";
@@ -10,11 +10,20 @@ import { fetchDashboardData } from "@/lib/queries/fetch-dashboard";
 import { fetchAttendanceData } from "@/lib/queries/fetch-attendance";
 import { fetchPayrollList } from "@/lib/queries/fetch-payroll";
 import { fetchStoreManagerData } from "@/lib/queries/fetch-store-manager";
+import {
+  readCachedCompanyContext,
+  writeCachedCompanyContext,
+} from "@/lib/queries/company-context-cache";
 
 export function useCompanyContextQuery() {
   return useQuery({
     queryKey: adminQueryKeys.companyContext,
-    queryFn: fetchCompanyContext,
+    queryFn: async () => {
+      const context = await fetchCompanyContext();
+      writeCachedCompanyContext(context);
+      return context;
+    },
+    initialData: readCachedCompanyContext,
     ...authQueryOptions,
   });
 }
@@ -61,9 +70,20 @@ export function usePayrollQuery(year: number, month: number, storeId: string) {
   });
 }
 
-/** キャッシュがある場合は即時表示、初回未取得時のみ Skeleton */
-export function useShowPageSkeleton(ready: boolean, pathname: string): boolean {
+/** キャッシュまたはプリフェッチ済みなら Skeleton を出さない */
+export function useShowPageSkeleton(
+  ready: boolean,
+  pathname: string,
+  queryKey?: QueryKey
+): boolean {
+  const queryClient = useQueryClient();
   if (ready) return false;
+  if (queryKey !== undefined) {
+    const cached = queryClient.getQueryData(queryKey);
+    if (cached !== undefined) return false;
+    const state = queryClient.getQueryState(queryKey);
+    if (state?.fetchStatus === "fetching" && state.dataUpdatedAt > 0) return false;
+  }
   if (typeof window === "undefined") return true;
   try {
     const raw = sessionStorage.getItem("admin:visited-routes");
@@ -80,3 +100,4 @@ export function useStoreManagerQuery(isSuperAdmin: boolean) {
     queryFn: () => fetchStoreManagerData(isSuperAdmin),
   });
 }
+

@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { adminQueryKeys } from "@/lib/queries/keys";
+import { clearCachedCompanyContext } from "@/lib/queries/company-context-cache";
 
 export async function invalidateEmployees(queryClient: QueryClient): Promise<void> {
   await queryClient.invalidateQueries({ queryKey: adminQueryKeys.employees });
@@ -42,4 +43,5 @@ export async function invalidatePayroll(
 /** ログアウト時のみ全 admin キャッシュを破棄 */
 export function clearAdminCache(queryClient: QueryClient): void {
   queryClient.removeQueries({ queryKey: ["admin"] });
+  clearCachedCompanyContext();
 }

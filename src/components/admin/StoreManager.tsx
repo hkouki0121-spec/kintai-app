@@ -251,6 +251,7 @@ export function StoreManager({
         initialGroups={groups}
         addFriendUrl={addFriendUrl}
         webhookUrl={webhookUrl}
+        loadConfig={expandedId !== null}
       />
 
       <Card>

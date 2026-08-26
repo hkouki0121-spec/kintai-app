@@ -15,7 +15,7 @@ import { ALL_STORES_VALUE } from "@/lib/stores/constants";
 import { useAdminCompany } from "@/components/admin/AdminCompanyProvider";
 import { KEEP_ALIVE_ROUTES } from "@/components/admin/AdminNavigationProvider";
 
-/** 認証後に全管理画面データをバックグラウンドでプリフェッチ */
+/** 初回描画のあと、アイドル時に他ページデータをプリフェッチする */
 export function AdminDataPrefetch() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -52,12 +52,23 @@ export function AdminDataPrefetch() {
         queryKey: adminQueryKeys.storeManager,
         queryFn: () => fetchStoreManagerData(isSuperAdmin),
       });
+      for (const route of KEEP_ALIVE_ROUTES) {
+        router.prefetch(route);
+      }
     };
 
-    prefetch();
-    for (const route of KEEP_ALIVE_ROUTES) {
-      router.prefetch(route);
+    let idleId = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(prefetch, { timeout: 2000 });
+    } else {
+      timeoutId = setTimeout(prefetch, 400);
     }
+
+    return () => {
+      if (idleId && "cancelIdleCallback" in window) window.cancelIdleCallback(idleId);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [queryClient, isSuperAdmin, router]);
 
   return null;
