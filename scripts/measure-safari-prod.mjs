@@ -123,7 +123,8 @@ async function measureOne(page, { from, to, navTo, heading, path }, passLabel) {
   page.on("response", onResponse);
 
   const t0 = performance.now();
-  await page.getByRole("link", { name: navTo, exact: true }).click({ noWaitAfter: true });
+  const navLink = page.getByRole("link", { name: navTo, exact: true });
+  await navLink.tap({ noWaitAfter: true }).catch(() => navLink.click({ noWaitAfter: true }));
 
   let skeletonMs = 0;
   const skelStart = performance.now();
