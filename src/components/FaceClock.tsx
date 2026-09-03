@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { clockIn, clockOut } from "@/lib/attendance/clock";
 import { notifyLineAttendance } from "@/lib/attendance/notify-line";
 import { hasRegisteredFace } from "@/lib/face/descriptors";
 import { FACE_MATCH_MIN_RATE } from "@/lib/constants";
@@ -26,7 +25,6 @@ type EmployeeRow = {
 type StoreRow = {
   id: string;
   name: string;
-  company_id: string;
 };
 
 function isCameraPermissionError(err: unknown): boolean {
@@ -93,16 +91,42 @@ export function FaceClock() {
     let cancelled = false;
 
     const loadStores = async () => {
-      const { data } = await supabase
-        .from("stores")
-        .select("id, name, company_id")
-        .eq("is_active", true)
-        .order("name");
-      const rows = (data as StoreRow[]) ?? [];
-      if (!cancelled) {
-        setStores(rows);
-        if (!selectedStoreId && rows.length === 1) {
-          setSelectedStoreId(rows[0].id);
+      try {
+        const response = await fetch("/api/kiosk/stores");
+        const payload = (await response.json()) as {
+          stores?: StoreRow[];
+          error?: string;
+        };
+        if (!response.ok) {
+          if (!cancelled) {
+            setStores([]);
+            setMessage({
+              type: "error",
+              text: "店舗一覧の取得に失敗しました。ページを再読み込みしてください。",
+            });
+          }
+          return;
+        }
+        const rows = payload.stores ?? [];
+        if (!cancelled) {
+          setStores(rows);
+          if (!selectedStoreId && rows.length === 1) {
+            setSelectedStoreId(rows[0].id);
+          }
+          if (rows.length === 0) {
+            setMessage({
+              type: "error",
+              text: "有効な店舗がありません。管理者画面で店舗を登録してください。",
+            });
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setStores([]);
+          setMessage({
+            type: "error",
+            text: "店舗一覧の取得に失敗しました。通信環境を確認して再読み込みしてください。",
+          });
         }
       }
     };
@@ -116,23 +140,46 @@ export function FaceClock() {
         return;
       }
 
-      const { data } = await supabase
-        .from("employees")
-        .select("id, name, store_id, company_id, face_descriptor")
-        .eq("is_active", true)
-        .eq("store_id", selectedStoreId);
-      const rows = ((data as EmployeeRow[]) ?? []).filter((e) =>
-        hasRegisteredFace(e.face_descriptor)
-      );
-      if (!cancelled) {
-        setEmployees(rows);
-        setAllEmployees(
-          ((data as EmployeeRow[]) ?? []).map((employee) => ({
-            id: employee.id,
-            name: employee.name,
-            store_id: employee.store_id,
-          }))
+      try {
+        const response = await fetch(
+          `/api/kiosk/face-roster?storeId=${encodeURIComponent(selectedStoreId)}`
         );
+        const payload = (await response.json()) as {
+          employees?: EmployeeRow[];
+          error?: string;
+        };
+        if (!response.ok) {
+          if (!cancelled) {
+            setEmployees([]);
+            setAllEmployees([]);
+            setMessage({
+              type: "error",
+              text: "従業員一覧の取得に失敗しました。店舗を選び直すか再読み込みしてください。",
+            });
+          }
+          return;
+        }
+        const data = payload.employees ?? [];
+        const rows = data.filter((e) => hasRegisteredFace(e.face_descriptor));
+        if (!cancelled) {
+          setEmployees(rows);
+          setAllEmployees(
+            data.map((employee) => ({
+              id: employee.id,
+              name: employee.name,
+              store_id: employee.store_id,
+            }))
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setEmployees([]);
+          setAllEmployees([]);
+          setMessage({
+            type: "error",
+            text: "従業員一覧の取得に失敗しました。通信環境を確認して再読み込みしてください。",
+          });
+        }
       }
     };
 
@@ -174,7 +221,7 @@ export function FaceClock() {
       const stream = video?.srcObject as MediaStream | undefined;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [startCamera, loadModels, supabase, selectedStoreId]);
+  }, [startCamera, loadModels, selectedStoreId]);
 
   useEffect(() => {
     setMessage(null);
@@ -196,14 +243,28 @@ export function FaceClock() {
     }
   };
 
+  const postKioskClock = async (
+    action: "clock_in" | "clock_out",
+    employee: EmployeeRow
+  ) => {
+    const response = await fetch("/api/kiosk/clock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        employeeId: employee.id,
+        storeId: employee.store_id,
+      }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "clock_failed");
+    }
+  };
+
   const runClockIn = async (identified: MatchResult, employee: EmployeeRow) => {
     const now = new Date().toISOString();
-    await clockIn(supabase, {
-      employeeId: identified.employeeId,
-      storeId: employee.store_id,
-      companyId: employee.company_id,
-      clockIn: now,
-    });
+    await postKioskClock("clock_in", employee);
     void syncPayroll(identified.employeeId);
     notifyLineAttendance({
       type: "clock_in",
@@ -220,10 +281,7 @@ export function FaceClock() {
 
   const runClockOut = async (identified: MatchResult, employee: EmployeeRow) => {
     const now = new Date().toISOString();
-    await clockOut(supabase, {
-      employeeId: identified.employeeId,
-      clockOut: now,
-    });
+    await postKioskClock("clock_out", employee);
     void syncPayroll(identified.employeeId);
     notifyLineAttendance({
       type: "clock_out",
@@ -337,7 +395,7 @@ export function FaceClock() {
       } catch (e) {
         if (!(e instanceof Error)) throw e;
 
-        if (e.message === "ALREADY_CLOCKED_IN") {
+        if (e.message === "ALREADY_CLOCKED_IN" || e.message === "ALREADY_CLOCKED_IN") {
           setOverlayHint("顔をカメラに向けてください");
           setMessage({
             type: "error",
